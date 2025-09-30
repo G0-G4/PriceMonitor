@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Task Monitor</title>
+  <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.6/build/pure-min.css">
+  <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.6/build/grids-responsive-min.css">
+  <script src="https://unpkg.com/htmx.org"></script>
+</head>
+<body class="pure-g" style="padding: 1em; max-width: 1200px; margin: 0 auto;">
+  <div class="pure-u-1">
+    <table class="pure-table pure-table-bordered pure-table-striped">
+      <caption><h2>Tasks</h2></caption>
+      <thead>
+        <tr>
+          <th>Task ID</th>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Created At</th>
+          <th>Updated At</th>
+        </tr>
+      </thead>
+      <tbody hx-get="/tasks/list" hx-trigger="load">
+        <!-- Tasks will be loaded here via HTMX -->
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

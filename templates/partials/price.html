@@ -1,0 +1,56 @@
+{% for price in prices %}
+<tr>
+  <td>{{ price.date }}</td>
+  <td>{{ price.company_id }}</td>
+  <td>{{ price.offer_id }}</td>
+  <td>{{ price.name }}</td>
+  <td>{{ price.yesterday_seller_price }}</td>
+  <td>{{ price.yesterday_spp }}</td>
+  <td>{{ price.yesterday_seller_price }}</td>
+  <td>{{ price.today_seller_price }}</td>
+  <td>{{ price.today_spp }}</td>
+  <td>{{ price.today_ozon_card }}</td>
+  {% if price.yesterday_ozon_card and price.yesterday_ozon_card > 0 %}
+    {% set percentage = price.today_ozon_card / price.yesterday_ozon_card %}
+    <td class="{% if percentage > 1 %}bg-red{% elif percentage == 1 %}bg-white{% else %}bg-green{% endif %}">
+      {{ format_percentage(percentage) }}
+    </td>
+  {% else %}
+    <td>-</td>
+  {% endif %}
+</tr>
+{% endfor %}
+
+{% if total_pages > 1 %}
+<tr>
+  <td colspan="7" class="pure-menu pure-menu-horizontal">
+    <ul class="pure-menu-list">
+      {% if current_page > 1 %}
+        <li class="pure-menu-item">
+          <a class="pure-button pure-menu-link" 
+             hx-get="/prices?page={{ current_page - 1 }}
+             {% if company_id %}&company_id={{ company_id }}{% endif %}
+             {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
+             &target_date={{ target_date }}"
+             hx-target="tbody"
+             hx-swap="innerHTML">Previous</a>
+        </li>
+      {% endif %}
+      <li class="pure-menu-item pure-menu-disabled">
+        <span class="pure-menu-link">Page {{ current_page }} of {{ total_pages }}</span>
+      </li>
+      {% if current_page < total_pages %}
+        <li class="pure-menu-item">
+          <a class="pure-button pure-menu-link"
+             hx-get="/prices?page={{ current_page + 1 }}
+             {% if company_id %}&company_id={{ company_id }}{% endif %}
+             {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
+             &target_date={{ target_date }}"
+             hx-target="tbody"
+             hx-swap="innerHTML">Next</a>
+        </li>
+      {% endif %}
+    </ul>
+  </td>
+</tr>
+{% endif %}

@@ -1,0 +1,25 @@
+<tr>
+  <td colspan="2">
+    <form class="pure-form" hx-post="/scheduled_times" hx-target="#scheduled-times-list">
+      <input type="time" name="scheduled_time" placeholder="HH:MM" required>
+      <button type="submit" class="pure-button pure-button-primary">Add</button>
+    </form>
+  </td>
+</tr>
+{% for scheduled_time in scheduled_times %}
+<tr>
+  <td>{{ scheduled_time }}</td>
+  <td>
+    <button class="pure-button button-error" 
+            hx-delete="/scheduled_times/{{ scheduled_time }}" 
+            hx-target="#scheduled-times-list">
+      Delete
+    </button>
+  </td>
+</tr>
+{% endfor %}
+{% if error %}
+<tr>
+  <td colspan="2" style="color: red;">{{ error }}</td>
+</tr>
+{% endif %}

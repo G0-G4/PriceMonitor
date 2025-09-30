@@ -1,29 +1,47 @@
 <!DOCTYPE html>
-<link rel="stylesheet" href="https://unpkg.com/mvp.css">
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>Price Monitor</title>
+  <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.6/build/pure-min.css">
+  <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.6/build/grids-responsive-min.css">
   <script src="https://unpkg.com/htmx.org"></script>
 </head>
-<body>
-<table>
-  <caption>Prices</caption>
-  <thead>
-    <tr>
-      <th>date</th>
-      <th>article</th>
-      <th>marketing seller price</th>
-      <th>old price</th>
-      <th>marketing price</th>
-      <th>marketing oa price</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for price in prices %}
-    {{ price }}
-  {% endfor %}
-  </tbody>
-</table>
+<body class="pure-g" style="padding: 1em; max-width: 1200px; margin: 0 auto;">
+  <div class="pure-u-1">
+    <form class="pure-form pure-g" hx-get="/prices" hx-target="tbody" hx-trigger="change, keyup delay:500ms">
+      <div class="pure-u-1 pure-u-md-1-4">
+        <input class="pure-input-1" type="text" name="company_id" placeholder="Company ID..." value="{{ company_id if company_id else '' }}">
+      </div>
+      <div class="pure-u-1 pure-u-md-1-4">
+        <input class="pure-input-1" type="text" name="offer_id" placeholder="Offer ID..." value="{{ offer_id if offer_id else '' }}">
+      </div>
+      <div class="pure-u-1 pure-u-md-1-4">
+        <input class="pure-input-1" type="date" name="target_date" value="{{ target_date if target_date else today }}">
+      </div>
+    </form>
+    
+    <table class="pure-table pure-table-bordered pure-table-striped">
+      <caption><h2>Price Changes</h2></caption>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Company ID</th>
+          <th>Offer ID</th>
+          <th>Name</th>
+          <th>Yesterday Seller Price</th>
+          <th>Yesterday SPP</th>
+          <th>Yesterday Ozon Card</th>
+          <th>Today Seller Price</th>
+          <th>Today SPP</th>
+          <th>Today Ozon Card</th>
+          <th>Change %</th>
+        </tr>
+      </thead>
+      <tbody hx-get="/prices" hx-trigger="load">
+        <!-- Prices will be loaded here via HTMX -->
+      </tbody>
+    </table>
+  </div>
 </body>
 </html>

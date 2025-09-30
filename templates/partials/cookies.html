@@ -1,0 +1,13 @@
+<h2>Cookies</h2>
+<form class="pure-form" hx-post="/cookies" hx-target="#cookies-form">
+  <div id="cookies-form">
+    <textarea name="cookies" rows="4" cols="50" placeholder="Enter cookies JSON">{{ cookies }}</textarea>
+    <button type="submit" class="pure-button pure-button-primary">Save Cookies</button>
+    {% if saved %}
+    <span style="margin-left: 10px; color: green;">✓ Cookies saved</span>
+    {% endif %}
+    {% if error %}
+    <span style="margin-left: 10px; color: red;">{{ error }}</span>
+    {% endif %}
+  </div>
+</form>
