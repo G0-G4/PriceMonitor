@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="https://unpkg.com/mvp.css">
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Price Monitor</title>
+  <script src="https://unpkg.com/htmx.org"></script>
+</head>
+<body>
+<table>
+  <caption>Prices</caption>
+  <thead>
+    <tr>
+      <th>date</th>
+      <th>article</th>
+      <th>marketing seller price</th>
+      <th>old price</th>
+      <th>marketing price</th>
+      <th>marketing oa price</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for price in prices %}
+    {{ price }}
+  {% endfor %}
+  </tbody>
+</table>
+</body>
+</html>
