@@ -68,7 +68,6 @@ class OzonService:
             total = await count_ozon_price_change(session, target_date, company_id)
             return PriceChangeResponse(price_changes=ozon_prices, total=total)
 
-
     async def convert_and_save_ozon_prices(self, items: list[Item], prices: list[Price], today: date):
         price_map:dict[str, Price] = {price.item_id : price for price in prices}
         ozon_prices = []
@@ -87,6 +86,9 @@ class OzonService:
                 marketing_oa_price=price.marketing_oa_price
             ))
         await save_ozon_prices(ozon_prices)
+
+    async def prepare_excel_report(self):
+       ...
 
 
 async def main():
