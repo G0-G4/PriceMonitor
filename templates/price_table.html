@@ -14,6 +14,9 @@
         <input class="pure-input-1" type="text" name="company_id" placeholder="Company ID..." value="{{ company_id if company_id else '' }}">
       </div>
       <div class="pure-u-1 pure-u-md-1-4">
+        <input class="pure-input-1" type="text" name="offer_id" placeholder="Offer ID..." value="{{ offer_id if offer_id else '' }}">
+      </div>
+      <div class="pure-u-1 pure-u-md-1-4">
         <input class="pure-input-1" type="date" name="target_date" value="{{ target_date if target_date else today }}">
       </div>
     </form>
@@ -25,6 +28,7 @@
           <th>Date</th>
           <th>Company ID</th>
           <th>Offer ID</th>
+          <th>Name</th>
           <th>Yesterday Seller Price</th>
           <th>Yesterday SPP</th>
           <th>Yesterday Ozon Card</th>

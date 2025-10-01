@@ -22,6 +22,7 @@ async def save_ozon_prices(prices: list[OzonPrice]):
             'company_id': price.company_id,
             'item_id': price.item_id,
             'offer_id': price.offer_id,
+            'name': price.name,
             'date': price.date,
             'marketing_seller_price': price.marketing_seller_price,
             'old_price': price.old_price,
@@ -56,7 +57,8 @@ async def get_ozon_price_change(
     target_date: date,
     limit: int = 50,
     offset: int = 0,
-    company_id: str|None = None
+    company_id: str|None = None,
+    offer_id: str|None = None
 ) -> list[PriceChange]:
     """
     Get paginated price changes for a specific date with optional company filter
@@ -65,6 +67,7 @@ async def get_ozon_price_change(
     query = select(
         OzonPrice.company_id,
         OzonPrice.offer_id,
+        OzonPrice.name,
         OzonPrice.marketing_seller_price.label('today_seller_price'),
         OzonPrice.marketing_oa_price.label('today_spp'),
         OzonPrice.marketing_price.label('today_ozon_card'),
@@ -86,8 +89,10 @@ async def get_ozon_price_change(
 
     if company_id:
         query = query.where(OzonPrice.company_id == company_id)
+    if offer_id:
+        query = query.where(OzonPrice.offer_id == offer_id)
 
-    query = query.limit(limit).offset(offset)
+    query = query.order_by(OzonPrice.item_id).limit(limit).offset(offset)
 
     result = await session.execute(query)
     rows = result.all()
@@ -97,6 +102,7 @@ async def get_ozon_price_change(
             date=target_date,
             company_id=str(row.company_id),
             offer_id=str(row.offer_id),
+            name=row.name,
             today_seller_price=row.today_seller_price,
             today_spp=row.today_spp,
             today_ozon_card=row.today_ozon_card,
@@ -110,7 +116,8 @@ async def get_ozon_price_change(
 async def count_ozon_price_change(
     session,
     target_date: date,
-    company_id: str|None = None
+    company_id: str|None = None,
+    offer_id : str|None = None
 ) -> int:
     """
     Count total price changes for a specific date with optional company filter
@@ -133,6 +140,8 @@ async def count_ozon_price_change(
 
     if company_id:
         query = query.where(OzonPrice.company_id == company_id)
+    if offer_id:
+        query = query.where(OzonPrice.offer_id == offer_id)
 
     result = await session.execute(query)
     return result.scalar_one()

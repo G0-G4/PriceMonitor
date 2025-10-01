@@ -1,6 +1,5 @@
 from sqlalchemy import Column, String, Float, Date, PrimaryKeyConstraint
 from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
 
 Base = declarative_base()
 
@@ -10,6 +9,7 @@ class OzonPrice(Base):
     company_id = Column(String, primary_key=True)
     item_id = Column(String, index=True)
     offer_id = Column(String, primary_key=True)
+    name = Column(String)
     date = Column(Date, primary_key=True)
     marketing_seller_price = Column(Float)
     old_price = Column(Float)

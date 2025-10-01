@@ -38,6 +38,7 @@ async def get_prices(
     request: Request,
     page: int = Query(1, ge=1),
     company_id: str = Query(None),
+    offer_id: str = Query(None),
     target_date: str = Query(None)
 ):
     service = await get_service()
@@ -51,7 +52,8 @@ async def get_prices(
         target_date=target_date_obj,
         limit=ITEMS_PER_PAGE,
         offset=(page - 1) * ITEMS_PER_PAGE,
-        company_id=company_id
+        company_id=company_id,
+        offer_id=offer_id
     )
 
     total_count = price_change_response.total
@@ -65,6 +67,7 @@ async def get_prices(
             "current_page": page,
             "total_pages": total_pages,
             "company_id": company_id,
+            "offer_id": offer_id,
             "target_date": target_date_obj.isoformat(),
             "format_percentage": lambda value: f"{value:.1f}"
         }

@@ -3,6 +3,7 @@
   <td>{{ price.date }}</td>
   <td>{{ price.company_id }}</td>
   <td>{{ price.offer_id }}</td>
+  <td>{{ price.name }}</td>
   <td>{{ price.yesterday_seller_price }}</td>
   <td>{{ price.yesterday_spp }}</td>
   <td>{{ price.yesterday_seller_price }}</td>
@@ -27,7 +28,10 @@
       {% if current_page > 1 %}
         <li class="pure-menu-item">
           <a class="pure-button pure-menu-link" 
-             hx-get="/prices?page={{ current_page - 1 }}{% if company_id %}&company_id={{ company_id }}{% endif %}&target_date={{ target_date }}"
+             hx-get="/prices?page={{ current_page - 1 }}
+             {% if company_id %}&company_id={{ company_id }}{% endif %}
+             {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
+             &target_date={{ target_date }}"
              hx-target="tbody"
              hx-swap="innerHTML">Previous</a>
         </li>
@@ -38,7 +42,10 @@
       {% if current_page < total_pages %}
         <li class="pure-menu-item">
           <a class="pure-button pure-menu-link"
-             hx-get="/prices?page={{ current_page + 1 }}{% if company_id %}&company_id={{ company_id }}{% endif %}&target_date={{ target_date }}"
+             hx-get="/prices?page={{ current_page + 1 }}
+             {% if company_id %}&company_id={{ company_id }}{% endif %}
+             {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
+             &target_date={{ target_date }}"
              hx-target="tbody"
              hx-swap="innerHTML">Next</a>
         </li>

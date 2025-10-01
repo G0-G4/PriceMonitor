@@ -63,10 +63,10 @@ class OzonService:
             page += 1
             await asyncio.sleep(0.5)
 
-    async def get_price_change(self, target_date: date, limit: int = 50, offset: int = 0, company_id: str = None) -> PriceChangeResponse:
+    async def get_price_change(self, target_date: date, limit: int = 50, offset: int = 0, company_id: str|None = None, offer_id: str|None = None) -> PriceChangeResponse:
         async with session_maker() as session, session.begin():
-            ozon_prices = await get_ozon_price_change(session, target_date, limit, offset, company_id)
-            total = await count_ozon_price_change(session, target_date, company_id)
+            ozon_prices = await get_ozon_price_change(session, target_date, limit, offset, company_id, offer_id)
+            total = await count_ozon_price_change(session, target_date, company_id, offer_id)
             return PriceChangeResponse(price_changes=ozon_prices, total=total)
 
     async def convert_and_save_ozon_prices(self, items: list[Item], prices: list[Price], today: date):
@@ -89,7 +89,7 @@ class OzonService:
             ))
         await save_ozon_prices(ozon_prices)
 
-    async def prepare_excel_report(self, target_date: date, company_id: str = None):
+    async def prepare_excel_report(self, target_date: date, company_id: str|None = None, offer_id: str|None = None):
         report_date = target_date.strftime("%Y-%m-%d")
         yesterday = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
         filename = f"price_changes_report_{report_date}.xlsx"
@@ -105,7 +105,8 @@ class OzonService:
                     target_date=target_date,
                     limit=limit,
                     offset=offset,
-                    company_id=company_id
+                    company_id=company_id,
+                    offer_id=offer_id
                 )
                 
                 if not response.price_changes:
@@ -134,8 +135,8 @@ class OzonService:
                     df.to_excel(writer, index=False, sheet_name='Price Changes')
                     # Add formula after writing
                     sheet = writer.sheets['Price Changes']
-                    for row in range(2, len(df) + 2):  # Excel rows start at 1, header is row 1
-                        formula = f'=IF(ISNUMBER(D{row}), (D{row}/G{row}-1)*100, "")'  # D=today, G=yesterday
+                    for row in range(2, len(df) + 2):
+                        formula = f'=J{row}/G{row}'
                         sheet.cell(row=row, column=len(df.columns)).value = formula
                     first_page = False
                 else:
@@ -151,7 +152,7 @@ class OzonService:
                     # Add formula for new rows
                     sheet = writer.sheets['Price Changes']
                     for row in range(startrow + 1, startrow + len(df) + 1):
-                        formula = f'=IF(ISNUMBER(D{row}), (D{row}/G{row}-1)*100, "")'
+                        formula = f'=J{row}/G{row}'
                         sheet.cell(row=row, column=len(df.columns)).value = formula
 
                 offset += limit
@@ -166,11 +167,11 @@ class OzonService:
 
 
 async def main():
-    # sender = await BrowserRequestSender("https://seller.ozon.ru/app/reviews").init()
-    # api = OzonApi(sender)
+    sender = await BrowserRequestSender("https://seller.ozon.ru/app/reviews").init()
+    api = OzonApi(sender)
     service = OzonService(None)
     # await service.get_today_prices("836045")
-    await service.prepare_excel_report(datetime.now(UTC).date())
+    await service.prepare_excel_report(datetime.now(UTC).date() + timedelta(days=1))
 
 if __name__ == '__main__':
     asyncio.run(main())

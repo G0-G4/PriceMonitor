@@ -14,3 +14,5 @@ CREATE TABLE IF NOT EXISTS OzonPrice
 CREATE INDEX idx_ozon_price_item_id ON OzonPrice (item_id);
 CREATE INDEX idx_ozon_price_offer_id ON OzonPrice (offer_id);
 CREATE INDEX idx_ozon_price_date ON OzonPrice (date);
+
+ALTER TABLE OzonPrice ADD COLUMN name STRING
