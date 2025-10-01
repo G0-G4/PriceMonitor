@@ -8,22 +8,6 @@ import secrets
 import uvicorn
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-security = HTTPBasic()
-
-# Basic Auth credentials (in production, use proper user management)
-USERNAME = "admin"
-PASSWORD = "secret"
-
-async def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
-    correct_username = secrets.compare_digest(credentials.username, USERNAME)
-    correct_password = secrets.compare_digest(credentials.password, PASSWORD)
-    if not (correct_username and correct_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
 
 # Dummy datastore
 class Price:
@@ -54,7 +38,7 @@ prices = [
           ]
 
 @app.get("/", response_class=HTMLResponse)
-async def get_items(request: Request, username: str = Depends(get_current_username)):
+async def get_items(request: Request):
     return templates.TemplateResponse("price_table.html", {"request": request})
 
 ITEMS_PER_PAGE = 10
@@ -65,8 +49,7 @@ async def get_prices(
     page: int = Query(1, ge=1),
     article_filter: str = Query(None),
     start_date: str = Query(None),
-    end_date: str = Query(None),
-    username: str = Depends(get_current_username)
+    end_date: str = Query(None)
 ):
     filtered_prices = prices
 
