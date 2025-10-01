@@ -38,3 +38,21 @@ async def save_ozon_prices(prices: list[OzonPrice]):
         await session.commit()
         
     logger.info(f"Bulk upserted {len(prices)} prices")
+
+async def get_ozon_price_change():
+ '''
+ select
+    today.company_id,
+    today.offer_id,
+    today.marketing_seller_price as today_seller_price,
+       today.marketing_oa_price     as today_SPP,
+       today.marketing_price        as today_ozon_card,
+    yesterday.marketing_seller_price as yesterday_seller_price,
+    yesterday.marketing_oa_price     as yesterday_SPP,
+    yesterday.marketing_price        as yesterday_ozon_card
+from OzonPrice today
+         left join OzonPrice yesterday on
+    today.company_id = yesterday.company_id and
+    today.item_id = yesterday.item_id and
+    today.date = DATE(yesterday.date, '+1 day')
+ '''
