@@ -113,7 +113,18 @@ class OzonService:
                 
                 # Convert to DataFrame
                 df = pd.DataFrame([price.model_dump() for price in response.price_changes])
-                
+            
+                # Rename columns for clarity
+                column_rename = {
+                    'today_seller_price': 'today_seller_price',
+                    'today_spp': 'today_spp_price',
+                    'today_ozon_card': 'today_ozon_card_price',
+                    'yesterday_seller_price': 'yesterday_seller_price', 
+                    'yesterday_spp': 'yesterday_spp_price',
+                    'yesterday_ozon_card': 'yesterday_ozon_card_price'
+                }
+                df = df.rename(columns=column_rename)
+            
                 # Write to Excel
                 if first_page:
                     # Write header on first page
