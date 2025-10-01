@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, UTC, date
+import pandas as pd
 
 from api.ozon_api import OzonApi
 from browser_request_sender import BrowserRequestSender
@@ -87,8 +88,55 @@ class OzonService:
             ))
         await save_ozon_prices(ozon_prices)
 
-    async def prepare_excel_report(self):
-       ...
+    async def prepare_excel_report(self, target_date: date, company_id: str = None):
+        # Create filename with current date
+        report_date = datetime.now().strftime("%Y-%m-%d")
+        filename = f"price_changes_report_{report_date}.xlsx"
+        
+        limit = 50
+        offset = 0
+        first_page = True
+        
+        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            while True:
+                # Get price changes page by page
+                response = await self.get_price_change(
+                    target_date=target_date,
+                    limit=limit,
+                    offset=offset,
+                    company_id=company_id
+                )
+                
+                if not response.price_changes:
+                    break  # No more data
+                
+                # Convert to DataFrame
+                df = pd.DataFrame([price.dict() for price in response.price_changes])
+                
+                # Write to Excel
+                if first_page:
+                    # Write header on first page
+                    df.to_excel(writer, index=False, sheet_name='Price Changes')
+                    first_page = False
+                else:
+                    # Append to existing sheet
+                    startrow = writer.sheets['Price Changes'].max_row
+                    df.to_excel(
+                        writer,
+                        index=False,
+                        sheet_name='Price Changes',
+                        startrow=startrow,
+                        header=False
+                    )
+                
+                offset += limit
+                
+                # Stop if we've processed all items
+                if offset >= response.total:
+                    break
+        
+        logger.info(f"Report saved as {filename}")
+        return filename
 
 
 async def main():
