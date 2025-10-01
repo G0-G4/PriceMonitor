@@ -1,7 +1,14 @@
+import asyncio
+import logging
+from datetime import UTC, date, datetime, timedelta
+
+from sqlalchemy import and_, select
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.orm import aliased
+
+from dto.price_change import PriceChange
 from models.database import session_maker
 from models.ozon_price import OzonPrice
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +46,7 @@ async def save_ozon_prices(prices: list[OzonPrice]):
         
     logger.info(f"Bulk upserted {len(prices)} prices")
 
-from datetime import date, timedelta
-from sqlalchemy import select, and_
-from sqlalchemy.orm import aliased
-from models.database import session_maker
-from models.ozon_price import OzonPrice
-from dto.price_change import PriceChange
-import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ async def get_ozon_price_change(
     target_date: date,
     limit: int = 50,
     offset: int = 0,
-    company_id: str = None
+    company_id: str|None = None
 ) -> list[PriceChange]:
     """
     Get paginated price changes for a specific date with optional company filter
@@ -103,14 +104,20 @@ async def get_ozon_price_change(
         return [
             PriceChange(
                 date=target_date,
-                company_id=row.company_id,
-                offer_id=row.offer_id,
-                today_seller_price=row.today_seller_price or 0,
-                today_spp=row.today_spp or 0,
-                today_ozon_card=row.today_ozon_card or 0,
-                yesterday_seller_price=row.yesterday_seller_price or 0,
-                yesterday_spp=row.yesterday_spp or 0,
-                yesterday_ozon_card=row.yesterday_ozon_card or 0
+                company_id=str(row.company_id),
+                offer_id=str(row.offer_id),
+                today_seller_price=row.today_seller_price,
+                today_spp=row.today_spp,
+                today_ozon_card=row.today_ozon_card,
+                yesterday_seller_price=row.yesterday_seller_price,
+                yesterday_spp=row.yesterday_spp,
+                yesterday_ozon_card=row.yesterday_ozon_card
             )
             for row in rows
         ]
+async def main():
+    prices = await get_ozon_price_change(datetime.now(UTC).date(), company_id="123")
+    print(prices)
+
+if __name__ == "__main__":
+    asyncio.run(main())
