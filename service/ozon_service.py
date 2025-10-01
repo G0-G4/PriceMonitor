@@ -114,7 +114,20 @@ class OzonService:
                 
                 # Convert to DataFrame
                 df = pd.DataFrame([price.model_dump() for price in response.price_changes])
-            
+
+                column_order = [
+                    'date', 'company_id', 'offer_id', 'name',
+                    'yesterday_seller_price',
+                    'yesterday_spp',
+                    'yesterday_ozon_card',
+                    'today_seller_price',
+                    'today_spp',
+                    'today_ozon_card',
+                ]
+
+                # Reorder columns
+                df = df[column_order]
+
                 # Rename columns for clarity
                 column_rename = {
                     'today_seller_price': 'Цена Продажи ' + report_date,
@@ -127,7 +140,7 @@ class OzonService:
                 df = df.rename(columns=column_rename)
                 
                 # Add empty column for formula
-                df['% Change Ozon Card'] = None
+                df['Изменение Цены %'] = None
             
                 # Write to Excel
                 if first_page:
