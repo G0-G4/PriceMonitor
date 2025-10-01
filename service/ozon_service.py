@@ -116,12 +116,12 @@ class OzonService:
             
                 # Rename columns for clarity
                 column_rename = {
-                    'today_seller_price': 'today_seller_price',
-                    'today_spp': 'today_spp_price',
-                    'today_ozon_card': 'today_ozon_card_price',
-                    'yesterday_seller_price': 'yesterday_seller_price', 
-                    'yesterday_spp': 'yesterday_spp_price',
-                    'yesterday_ozon_card': 'yesterday_ozon_card_price'
+                    'today_seller_price': 'Цена Продажи ' + report_date,
+                    'today_spp': 'СПП ' + report_date,
+                    'today_ozon_card': 'Карта Озон ' + report_date,
+                    'yesterday_seller_price': 'Цена Продажи ' + yesterday,
+                    'yesterday_spp': 'СПП ' + yesterday,
+                    'yesterday_ozon_card': 'Карта Озон ' + yesterday
                 }
                 df = df.rename(columns=column_rename)
             
