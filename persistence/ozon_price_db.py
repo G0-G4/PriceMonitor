@@ -91,6 +91,7 @@ async def get_ozon_price_change(
     """
     async with session_maker() as session:
         query = await _get_price_change_base_query(target_date, company_id)
+        OzonPriceYesterday = aliased(OzonPrice)
         
         # Add specific columns and pagination for the get method
         query = query.add_columns(
