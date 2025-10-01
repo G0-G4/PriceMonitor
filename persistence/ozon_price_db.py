@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 
 async def get_ozon_price_change(
+    session,
     target_date: date,
     limit: int = 50,
     offset: int = 0,
@@ -60,80 +61,86 @@ async def get_ozon_price_change(
     """
     Get paginated price changes for a specific date with optional company filter
     """
-    async with session_maker() as session:
-        OzonPriceYesterday = aliased(OzonPrice)
-        query = select(
-            OzonPrice.company_id,
-            OzonPrice.offer_id,
-            OzonPrice.marketing_seller_price.label('today_seller_price'),
-            OzonPrice.marketing_oa_price.label('today_spp'),
-            OzonPrice.marketing_price.label('today_ozon_card'),
-            OzonPriceYesterday.marketing_seller_price.label('yesterday_seller_price'),
-            OzonPriceYesterday.marketing_oa_price.label('yesterday_spp'),
-            OzonPriceYesterday.marketing_price.label('yesterday_ozon_card')
-        ).select_from(
-            OzonPrice
-        ).outerjoin(
-            OzonPriceYesterday,
-            and_(
-                OzonPrice.company_id == OzonPriceYesterday.company_id,
-                OzonPrice.offer_id == OzonPriceYesterday.offer_id,
-                OzonPriceYesterday.date == target_date - timedelta(days=1)
-            )
-        ).where(
-            OzonPrice.date == target_date
-        ).limit(limit).offset(offset)
-        
-        result = await session.execute(query)
-        rows = result.all()
-        
-        return [
-            PriceChange(
-                date=target_date,
-                company_id=str(row.company_id),
-                offer_id=str(row.offer_id),
-                today_seller_price=row.today_seller_price,
-                today_spp=row.today_spp,
-                today_ozon_card=row.today_ozon_card,
-                yesterday_seller_price=row.yesterday_seller_price,
-                yesterday_spp=row.yesterday_spp,
-                yesterday_ozon_card=row.yesterday_ozon_card
-            )
-            for row in rows
-        ]
+    OzonPriceYesterday = aliased(OzonPrice)
+    query = select(
+        OzonPrice.company_id,
+        OzonPrice.offer_id,
+        OzonPrice.marketing_seller_price.label('today_seller_price'),
+        OzonPrice.marketing_oa_price.label('today_spp'),
+        OzonPrice.marketing_price.label('today_ozon_card'),
+        OzonPriceYesterday.marketing_seller_price.label('yesterday_seller_price'),
+        OzonPriceYesterday.marketing_oa_price.label('yesterday_spp'),
+        OzonPriceYesterday.marketing_price.label('yesterday_ozon_card')
+    ).select_from(
+        OzonPrice
+    ).outerjoin(
+        OzonPriceYesterday,
+        and_(
+            OzonPrice.company_id == OzonPriceYesterday.company_id,
+            OzonPrice.offer_id == OzonPriceYesterday.offer_id,
+            OzonPriceYesterday.date == target_date - timedelta(days=1)
+        )
+    ).where(
+        OzonPrice.date == target_date
+    )
+
+    if company_id:
+        query = query.where(OzonPrice.company_id == company_id)
+
+    query = query.limit(limit).offset(offset)
+
+    result = await session.execute(query)
+    rows = result.all()
+
+    return [
+        PriceChange(
+            date=target_date,
+            company_id=str(row.company_id),
+            offer_id=str(row.offer_id),
+            today_seller_price=row.today_seller_price,
+            today_spp=row.today_spp,
+            today_ozon_card=row.today_ozon_card,
+            yesterday_seller_price=row.yesterday_seller_price,
+            yesterday_spp=row.yesterday_spp,
+            yesterday_ozon_card=row.yesterday_ozon_card
+        )
+        for row in rows
+    ]
 
 async def count_ozon_price_change(
+    session,
     target_date: date,
     company_id: str|None = None
 ) -> int:
     """
     Count total price changes for a specific date with optional company filter
     """
-    async with session_maker() as session:
-        OzonPriceYesterday = aliased(OzonPrice)
-        query = select(
-            func.count()
-        ).select_from(
-            OzonPrice
-        ).outerjoin(
-            OzonPriceYesterday,
-            and_(
-                OzonPrice.company_id == OzonPriceYesterday.company_id,
-                OzonPrice.offer_id == OzonPriceYesterday.offer_id,
-                OzonPriceYesterday.date == target_date - timedelta(days=1)
-            )
-        ).where(
-            OzonPrice.date == target_date
+    OzonPriceYesterday = aliased(OzonPrice)
+    query = select(
+        func.count()
+    ).select_from(
+        OzonPrice
+    ).outerjoin(
+        OzonPriceYesterday,
+        and_(
+            OzonPrice.company_id == OzonPriceYesterday.company_id,
+            OzonPrice.offer_id == OzonPriceYesterday.offer_id,
+            OzonPriceYesterday.date == target_date - timedelta(days=1)
         )
-        
-        if company_id:
-            query = query.where(OzonPrice.company_id == company_id)
-            
-        result = await session.execute(query)
-        return result.scalar_one()
+    ).where(
+        OzonPrice.date == target_date
+    )
+
+    if company_id:
+        query = query.where(OzonPrice.company_id == company_id)
+
+    result = await session.execute(query)
+    return result.scalar_one()
 async def main():
-    prices = await get_ozon_price_change(datetime.now(UTC).date(), company_id="123")
+    prices = await get_ozon_price_change(datetime.now(UTC).date())
+    count = await count_ozon_price_change(datetime.now(UTC).date())
     print(prices)
+    print(count)
 
 if __name__ == "__main__":
     asyncio.run(main())

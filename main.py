@@ -7,12 +7,10 @@ from service.ozon_service import OzonService
 from api.ozon_api import OzonApi
 from browser_request_sender import BrowserRequestSender
 import uvicorn
-import asyncio
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# Initialize service
 sender = None
 api = None
 service = None
@@ -33,7 +31,7 @@ async def get_items(request: Request):
         "today": today
     })
 
-ITEMS_PER_PAGE = 10
+ITEMS_PER_PAGE = 50
 
 @app.get("/prices", response_class=HTMLResponse)
 async def get_prices(
@@ -44,36 +42,31 @@ async def get_prices(
 ):
     service = await get_service()
     
-    # Parse date or use today if not provided
     try:
         target_date_obj = date.fromisoformat(target_date) if target_date else date.today()
     except ValueError:
         target_date_obj = date.today()
 
-    # Get price changes from database
-    price_changes = await service.get_price_change(
+    price_change_response = await service.get_price_change(
         target_date=target_date_obj,
         limit=ITEMS_PER_PAGE,
         offset=(page - 1) * ITEMS_PER_PAGE,
         company_id=company_id
     )
 
-    # Get total count for pagination
-    total_count = len(await service.get_price_change(
-        target_date=target_date_obj,
-        company_id=company_id
-    ))
+    total_count = price_change_response.total
     total_pages = (total_count + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
 
     return templates.TemplateResponse(
         "partials/price.html",
         {
             "request": request,
-            "prices": price_changes,
+            "prices": price_change_response.price_changes,
             "current_page": page,
             "total_pages": total_pages,
             "company_id": company_id,
-            "target_date": target_date_obj.isoformat()
+            "target_date": target_date_obj.isoformat(),
+            "format_percentage": lambda value: f"{value:.1f}"
         }
     )
 

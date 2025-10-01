@@ -15,8 +15,3 @@ class OzonPrice(Base):
     old_price = Column(Float)
     marketing_price = Column(Float)
     marketing_oa_price = Column(Float)
-    
-    __table_args__ = (
-        PrimaryKeyConstraint('offer_id', 'date', 'company_id'),
-        {'sqlite_autoincrement': True},
-    )
