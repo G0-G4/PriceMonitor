@@ -1,39 +1,43 @@
 {% for price in prices %}
 <tr>
   <td>{{ price.date }}</td>
-  <td>{{ price.article }}</td>
-  <td>{{ price.marketing_seller_price }}</td>
-  <td>{{ price.old_price}}</td>
+  <td>{{ price.company_id }}</td>
+  <td>{{ price.offer_id }}</td>
+  <td>{{ price.today_seller_price }}</td>
+  <td>{{ price.yesterday_seller_price }}</td>
   <td>
-    {{ price.marketing_price }}
-    {% if price.marketing_price_change_ > 0 %}
-      <span class="pure-badge" style="background: green">↑ {{ price.marketing_price_change_ }}%</span>
-    {% elif price.marketing_price_change_ < 0 %}
-      <span class="pure-badge" style="background: red">↓ {{ price.marketing_price_change_|abs }}%</span>
+    {{ price.today_spp }}
+    {% if price.today_spp and price.yesterday_spp %}
+      {% set change = ((price.today_spp - price.yesterday_spp) / price.yesterday_spp * 100) if price.yesterday_spp else 0 %}
+      {% if change > 0 %}
+        <span class="price-change-up">↑ {{ "%.2f"|format(change) }}%</span>
+      {% elif change < 0 %}
+        <span class="price-change-down">↓ {{ "%.2f"|format(change|abs) }}%</span>
+      {% endif %}
     {% endif %}
   </td>
   <td>
-    {{ price.marketing_oa_price }}
-    {% if price.marketing_oa_price_change > 0 %}
-      <span class="pure-badge" style="background: green">↑ {{ price.marketing_oa_price_change }}%</span>
-    {% elif price.marketing_oa_price_change < 0 %}
-      <span class="pure-badge" style="background: red">↓ {{ price.marketing_oa_price_change|abs }}%</span>
+    {{ price.today_ozon_card }}
+    {% if price.today_ozon_card and price.yesterday_ozon_card %}
+      {% set change = ((price.today_ozon_card - price.yesterday_ozon_card) / price.yesterday_ozon_card * 100) if price.yesterday_ozon_card else 0 %}
+      {% if change > 0 %}
+        <span class="price-change-up">↑ {{ "%.2f"|format(change) }}%</span>
+      {% elif change < 0 %}
+        <span class="price-change-down">↓ {{ "%.2f"|format(change|abs) }}%</span>
+      {% endif %}
     {% endif %}
   </td>
 </tr>
 {% endfor %}
 
-{% set total_pages = total_pages|default(1)|int %}
-{% set current_page = current_page|default(1)|int %}
-
 {% if total_pages > 1 %}
 <tr>
-  <td colspan="6" class="pure-menu pure-menu-horizontal">
+  <td colspan="7" class="pure-menu pure-menu-horizontal">
     <ul class="pure-menu-list">
       {% if current_page > 1 %}
         <li class="pure-menu-item">
           <a class="pure-button pure-menu-link" 
-             hx-get="/prices?page={{ current_page - 1 }}&article_filter={{ request.query_params.get('article_filter', '') }}&start_date={{ request.query_params.get('start_date', '') }}&end_date={{ request.query_params.get('end_date', '') }}"
+             hx-get="/prices?page={{ current_page - 1 }}&company_id={{ company_id }}&target_date={{ target_date }}"
              hx-target="tbody"
              hx-swap="innerHTML">Previous</a>
         </li>
@@ -44,7 +48,7 @@
       {% if current_page < total_pages %}
         <li class="pure-menu-item">
           <a class="pure-button pure-menu-link"
-             hx-get="/prices?page={{ current_page + 1 }}&article_filter={{ request.query_params.get('article_filter', '') }}&start_date={{ request.query_params.get('start_date', '') }}&end_date={{ request.query_params.get('end_date', '') }}"
+             hx-get="/prices?page={{ current_page + 1 }}&company_id={{ company_id }}&target_date={{ target_date }}"
              hx-target="tbody"
              hx-swap="innerHTML">Next</a>
         </li>
