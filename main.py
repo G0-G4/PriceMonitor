@@ -2,44 +2,36 @@ from fastapi import FastAPI, Request, Form, Query, Depends, HTTPException, statu
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from datetime import datetime
-import uuid
-import secrets
+from datetime import datetime, date
+from service.ozon_service import OzonService
+from api.ozon_api import OzonApi
+from browser_request_sender import BrowserRequestSender
 import uvicorn
+import asyncio
+
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# Dummy datastore
-class Price:
-    def __init__(self):
-        self.date = datetime.now()
-        self.article = uuid.uuid4()
-        self.marketing_seller_price = 0
-        self.old_price = 10
-        self.marketing_price = 0
-        self.marketing_oa_price = 0
-        self.marketing_price_change_ = 10
-        self.marketing_oa_price_change = -10
-prices = [
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
-    Price(), Price(),
+# Initialize service
+sender = None
+api = None
+service = None
 
-          ]
+async def get_service():
+    global sender, api, service
+    if sender is None:
+        sender = await BrowserRequestSender("https://seller.ozon.ru/app/reviews").init()
+        api = OzonApi(sender)
+        service = OzonService(api)
+    return service
 
 @app.get("/", response_class=HTMLResponse)
 async def get_items(request: Request):
-    return templates.TemplateResponse("price_table.html", {"request": request})
+    today = date.today().isoformat()
+    return templates.TemplateResponse("price_table.html", {
+        "request": request,
+        "today": today
+    })
 
 ITEMS_PER_PAGE = 10
 
@@ -47,35 +39,37 @@ ITEMS_PER_PAGE = 10
 async def get_prices(
     request: Request,
     page: int = Query(1, ge=1),
-    article_filter: str = Query(None),
-    start_date: str = Query(None),
-    end_date: str = Query(None)
+    company_id: str = Query(None),
+    target_date: str = Query(None)
 ):
-    filtered_prices = prices
+    service = await get_service()
+    
+    # Parse date or use today if not provided
+    try:
+        target_date_obj = date.fromisoformat(target_date) if target_date else date.today()
+    except ValueError:
+        target_date_obj = date.today()
 
-    # Apply filters
-    if article_filter:
-        filtered_prices = [p for p in filtered_prices if article_filter.strip().lower() in str(p.article).lower()]
+    # Get price changes from database
+    price_changes = await service.get_price_change(
+        target_date=target_date_obj,
+        limit=ITEMS_PER_PAGE,
+        offset=(page - 1) * ITEMS_PER_PAGE,
+        company_id=company_id
+    )
 
-    if start_date:
-        start = datetime.strptime(start_date, "%Y-%m-%d")
-        filtered_prices = [p for p in filtered_prices if p.date >= start]
-
-    if end_date:
-        end = datetime.strptime(end_date, "%Y-%m-%d")
-        filtered_prices = [p for p in filtered_prices if p.date <= end]
-
-    # Pagination
-    start_idx = (page - 1) * ITEMS_PER_PAGE
-    end_idx = start_idx + ITEMS_PER_PAGE
-    paginated_prices = filtered_prices[start_idx:end_idx]
-    total_pages = (len(filtered_prices) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    # Get total count for pagination
+    total_count = len(await service.get_price_change(
+        target_date=target_date_obj,
+        company_id=company_id
+    ))
+    total_pages = (total_count + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
 
     return templates.TemplateResponse(
         "partials/price.html",
         {
             "request": request,
-            "prices": paginated_prices,
+            "prices": price_changes,
             "current_page": page,
             "total_pages": total_pages
         }
