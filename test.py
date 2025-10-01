@@ -100,24 +100,40 @@ from playwright.sync_api import sync_playwright
 
 def make_request(page, url, headers, payload):
     request_data = {
-        'url': url,
+        'url': f"https://seller.ozon.ru{url}",  # Added full URL
         'headers': headers,
         'body': payload
     }
-    response = page.evaluate("""async (data) => {
-            response = await fetch(data.url, {
-                method: 'POST',
-                headers: data.headers,
-                body: JSON.stringify(data.body)
-            }).then(response => response).catch((error) => console.error(error));
-            if (response.ok) {
-                return response.json()
+    try:
+        response = page.evaluate("""async (data) => {
+            try {
+                const response = await fetch(data.url, {
+                    method: 'POST',
+                    headers: data.headers,
+                    body: JSON.stringify(data.body),
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.text();
+                    return { error: error, status: response.status };
+                }
+                return await response.json();
+            } catch (error) {
+                return { error: error.toString() };
             }
-            console.error(response.text());
-            return null;
         }""", request_data)
-    logger.info(f"response from js {response}")
-    return response
+        
+        if response and 'error' in response:
+            logger.error(f"Request failed: {response}")
+            return None, response.get('error')
+            
+        logger.info(f"Request successful: {response}")
+        return response, None
+        
+    except Exception as e:
+        logger.error(f"Playwright error: {str(e)}")
+        return None, str(e)
 
 def main():
     playwright = sync_playwright().start()
@@ -143,8 +159,11 @@ def main():
     page.on('console', on_console)
     page.goto("https://seller.ozon.ru/app/reviews")
     time.sleep(3)
-    res = make_request(page, "/api/pricing-bff-service/v3/get-common-prices", headers, payload)
-    print(res)
+    response, error = make_request(page, "/api/pricing-bff-service/v3/get-common-prices", headers, payload)
+    if error:
+        print(f"Error occurred: {error}")
+    else:
+        print(f"Response: {response}")
     input()
 
 if __name__ == '__main__':
