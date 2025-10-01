@@ -84,13 +84,68 @@ ssl_context.options |= ssl.OP_NO_SSLv3
 ssl_context.options |= ssl.OP_NO_COMPRESSION
 ssl_context.set_ciphers(':'.join(tls_ciphers))
 
-while True:
-    conn = http.client.HTTPSConnection(
-        "seller.ozon.ru",
-        context=ssl_context
+# while True:
+#     conn = http.client.HTTPSConnection(
+#         "seller.ozon.ru",
+#         context=ssl_context
+#     )
+#     conn.request("POST", "/api/pricing-bff-service/v3/get-common-prices", payload, headers)
+#     res = conn.getresponse()
+#     data = res.read()
+#     logger.info(data.decode("utf-8"))
+#     time.sleep(5)
+
+
+from playwright.sync_api import sync_playwright
+
+def make_request(page, url, headers, payload):
+    request_data = {
+        'url': url,
+        'headers': headers,
+        'body': payload
+    }
+    response = page.evaluate("""async (data) => {
+            response = await fetch(data.url, {
+                method: 'POST',
+                headers: data.headers,
+                body: JSON.stringify(data.body)
+            }).then(response => response).catch((error) => console.error(error));
+            if (response.ok) {
+                return response.json()
+            }
+            console.error(response.text());
+            return null;
+        }""", request_data)
+    logger.info(f"response from js {response}")
+    return response
+
+def main():
+    playwright = sync_playwright().start()
+    browser = playwright.chromium.launch(
+        channel='chrome',
+        headless=False,
+        args=[
+            '--disable-blink-features=AutomationControlled',
+        ]
     )
-    conn.request("POST", "/api/pricing-bff-service/v3/get-common-prices", payload, headers)
-    res = conn.getresponse()
-    data = res.read()
-    logger.info(data.decode("utf-8"))
-    time.sleep(5)
+    context = browser.new_context()
+    converter = {
+        "sameSite": lambda v: 'Strict' if v.lower().strip() == 'strict' else 'Lax' if v.lower().strip() == 'lax' else 'None',
+        "partitionKey": lambda x: ""
+    }
+    with open("cookies.json") as f:
+        cookies = json.load(f)
+    cookies = [{k: converter.get(k, lambda x: x)(v) for k, v in cookie.items()} for cookie in cookies]
+    context.add_cookies(cookies)
+    page = context.new_page()
+    def on_console(msg):
+        logger.info(f"browser console {msg.text}")
+    page.on('console', on_console)
+    page.goto("https://seller.ozon.ru/app/reviews")
+    time.sleep(3)
+    res = make_request(page, "/api/pricing-bff-service/v3/get-common-prices", headers, payload)
+    print(res)
+    input()
+
+if __name__ == '__main__':
+    main()
