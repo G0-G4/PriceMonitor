@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, func
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import aliased
 
@@ -50,6 +50,36 @@ async def save_ozon_prices(prices: list[OzonPrice]):
 
 logger = logging.getLogger(__name__)
 
+async def _get_price_change_base_query(
+    target_date: date,
+    company_id: str|None = None
+):
+    """
+    Create base query for price change operations (used by both get and count)
+    """
+    OzonPriceYesterday = aliased(OzonPrice)
+    
+    query = select(
+        OzonPrice.company_id,
+        OzonPrice.offer_id
+    ).select_from(
+        OzonPrice
+    ).outerjoin(
+        OzonPriceYesterday,
+        and_(
+            OzonPrice.company_id == OzonPriceYesterday.company_id,
+            OzonPrice.offer_id == OzonPriceYesterday.offer_id,
+            OzonPriceYesterday.date == target_date - timedelta(days=1)
+        )
+    ).where(
+        OzonPrice.date == target_date
+    )
+    
+    if company_id:
+        query = query.where(OzonPrice.company_id == company_id)
+        
+    return query
+
 async def get_ozon_price_change(
     target_date: date,
     limit: int = 50,
@@ -58,46 +88,20 @@ async def get_ozon_price_change(
 ) -> list[PriceChange]:
     """
     Get paginated price changes for a specific date with optional company filter
-    
-    Args:
-        target_date: Date to get price changes for
-        limit: Maximum number of results to return
-        offset: Number of results to skip
-        company_id: Optional company ID filter
-    
-    Returns:
-        List of PriceChange objects showing price differences between target_date and previous day
     """
     async with session_maker() as session:
-        # Create alias for yesterday's prices
-        OzonPriceYesterday = aliased(OzonPrice)
+        query = await _get_price_change_base_query(target_date, company_id)
         
-        # Base query for today's prices with left join to yesterday's prices
-        query = select(
-            OzonPrice.company_id,
-            OzonPrice.offer_id,
+        # Add specific columns and pagination for the get method
+        query = query.add_columns(
             OzonPrice.marketing_seller_price.label('today_seller_price'),
             OzonPrice.marketing_oa_price.label('today_spp'),
             OzonPrice.marketing_price.label('today_ozon_card'),
             OzonPriceYesterday.marketing_seller_price.label('yesterday_seller_price'),
             OzonPriceYesterday.marketing_oa_price.label('yesterday_spp'),
             OzonPriceYesterday.marketing_price.label('yesterday_ozon_card')
-        ).select_from(
-            OzonPrice
-        ).outerjoin(
-            OzonPriceYesterday,
-            and_(
-                OzonPrice.company_id == OzonPriceYesterday.company_id,
-                OzonPrice.offer_id == OzonPriceYesterday.offer_id,
-                OzonPriceYesterday.date == target_date - timedelta(days=1)
-            )
-        ).where(
-            OzonPrice.date == target_date
         ).limit(limit).offset(offset)
         
-        if company_id:
-            query = query.where(OzonPrice.company_id == company_id)
-            
         result = await session.execute(query)
         rows = result.all()
         
@@ -115,6 +119,19 @@ async def get_ozon_price_change(
             )
             for row in rows
         ]
+
+async def count_ozon_price_change(
+    target_date: date,
+    company_id: str|None = None
+) -> int:
+    """
+    Count total price changes for a specific date with optional company filter
+    """
+    async with session_maker() as session:
+        query = await _get_price_change_base_query(target_date, company_id)
+        query = select(func.count()).select_from(query.subquery())
+        result = await session.execute(query)
+        return result.scalar_one()
 async def main():
     prices = await get_ozon_price_change(datetime.now(UTC).date(), company_id="123")
     print(prices)
