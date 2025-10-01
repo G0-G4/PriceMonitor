@@ -50,35 +50,6 @@ async def save_ozon_prices(prices: list[OzonPrice]):
 
 logger = logging.getLogger(__name__)
 
-async def _get_price_change_base_query(
-    target_date: date,
-    company_id: str|None = None
-):
-    """
-    Create base query for price change operations (used by both get and count)
-    """
-    OzonPriceYesterday = aliased(OzonPrice)
-    
-    query = select(
-        OzonPrice.company_id,
-        OzonPrice.offer_id
-    ).select_from(
-        OzonPrice
-    ).outerjoin(
-        OzonPriceYesterday,
-        and_(
-            OzonPrice.company_id == OzonPriceYesterday.company_id,
-            OzonPrice.offer_id == OzonPriceYesterday.offer_id,
-            OzonPriceYesterday.date == target_date - timedelta(days=1)
-        )
-    ).where(
-        OzonPrice.date == target_date
-    )
-    
-    if company_id:
-        query = query.where(OzonPrice.company_id == company_id)
-        
-    return query
 
 async def get_ozon_price_change(
     target_date: date,
@@ -90,17 +61,27 @@ async def get_ozon_price_change(
     Get paginated price changes for a specific date with optional company filter
     """
     async with session_maker() as session:
-        query = await _get_price_change_base_query(target_date, company_id)
         OzonPriceYesterday = aliased(OzonPrice)
-        
-        # Add specific columns and pagination for the get method
-        query = query.add_columns(
+        query = select(
+            OzonPrice.company_id,
+            OzonPrice.offer_id,
             OzonPrice.marketing_seller_price.label('today_seller_price'),
             OzonPrice.marketing_oa_price.label('today_spp'),
             OzonPrice.marketing_price.label('today_ozon_card'),
             OzonPriceYesterday.marketing_seller_price.label('yesterday_seller_price'),
             OzonPriceYesterday.marketing_oa_price.label('yesterday_spp'),
             OzonPriceYesterday.marketing_price.label('yesterday_ozon_card')
+        ).select_from(
+            OzonPrice
+        ).outerjoin(
+            OzonPriceYesterday,
+            and_(
+                OzonPrice.company_id == OzonPriceYesterday.company_id,
+                OzonPrice.offer_id == OzonPriceYesterday.offer_id,
+                OzonPriceYesterday.date == target_date - timedelta(days=1)
+            )
+        ).where(
+            OzonPrice.date == target_date
         ).limit(limit).offset(offset)
         
         result = await session.execute(query)
@@ -129,8 +110,25 @@ async def count_ozon_price_change(
     Count total price changes for a specific date with optional company filter
     """
     async with session_maker() as session:
-        query = await _get_price_change_base_query(target_date, company_id)
-        query = select(func.count()).select_from(query.subquery())
+        OzonPriceYesterday = aliased(OzonPrice)
+        query = select(
+            func.count()
+        ).select_from(
+            OzonPrice
+        ).outerjoin(
+            OzonPriceYesterday,
+            and_(
+                OzonPrice.company_id == OzonPriceYesterday.company_id,
+                OzonPrice.offer_id == OzonPriceYesterday.offer_id,
+                OzonPriceYesterday.date == target_date - timedelta(days=1)
+            )
+        ).where(
+            OzonPrice.date == target_date
+        )
+        
+        if company_id:
+            query = query.where(OzonPrice.company_id == company_id)
+            
         result = await session.execute(query)
         return result.scalar_one()
 async def main():
