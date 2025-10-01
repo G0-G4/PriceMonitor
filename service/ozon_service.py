@@ -124,11 +124,19 @@ class OzonService:
                     'yesterday_ozon_card': 'Карта Озон ' + yesterday
                 }
                 df = df.rename(columns=column_rename)
+                
+                # Add empty column for formula
+                df['% Change Ozon Card'] = None
             
                 # Write to Excel
                 if first_page:
                     # Write header on first page
                     df.to_excel(writer, index=False, sheet_name='Price Changes')
+                    # Add formula after writing
+                    sheet = writer.sheets['Price Changes']
+                    for row in range(2, len(df) + 2):  # Excel rows start at 1, header is row 1
+                        formula = f'=IF(ISNUMBER(D{row}), (D{row}/G{row}-1)*100, "")'  # D=today, G=yesterday
+                        sheet.cell(row=row, column=len(df.columns)).value = formula
                     first_page = False
                 else:
                     # Append to existing sheet
@@ -140,6 +148,11 @@ class OzonService:
                         startrow=startrow,
                         header=False
                     )
+                    # Add formula for new rows
+                    sheet = writer.sheets['Price Changes']
+                    for row in range(startrow + 1, startrow + len(df) + 1):
+                        formula = f'=IF(ISNUMBER(D{row}), (D{row}/G{row}-1)*100, "")'
+                        sheet.cell(row=row, column=len(df.columns)).value = formula
 
                 offset += limit
                 logger.info(f"written {offset} of {response.total} rows to excel")
