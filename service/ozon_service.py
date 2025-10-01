@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, UTC, date
+from datetime import datetime, UTC, date, timedelta
 import pandas as pd
 
 from api.ozon_api import OzonApi
@@ -80,6 +80,7 @@ class OzonService:
                 company_id=item.company_id,
                 item_id=item.item_id,
                 offer_id=item.part_item.offer_id,
+                name=item.part_item.name,
                 date=today,
                 marketing_seller_price=price.marketing_seller_price,
                 old_price=price.old_price,
@@ -89,8 +90,8 @@ class OzonService:
         await save_ozon_prices(ozon_prices)
 
     async def prepare_excel_report(self, target_date: date, company_id: str = None):
-        # Create filename with current date
-        report_date = datetime.now().strftime("%Y-%m-%d")
+        report_date = target_date.strftime("%Y-%m-%d")
+        yesterday = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
         filename = f"price_changes_report_{report_date}.xlsx"
         
         limit = 50
@@ -111,7 +112,7 @@ class OzonService:
                     break  # No more data
                 
                 # Convert to DataFrame
-                df = pd.DataFrame([price.dict() for price in response.price_changes])
+                df = pd.DataFrame([price.model_dump() for price in response.price_changes])
                 
                 # Write to Excel
                 if first_page:
@@ -128,9 +129,10 @@ class OzonService:
                         startrow=startrow,
                         header=False
                     )
-                
+
                 offset += limit
-                
+                logger.info(f"written {offset} of {response.total} rows to excel")
+
                 # Stop if we've processed all items
                 if offset >= response.total:
                     break
@@ -140,10 +142,11 @@ class OzonService:
 
 
 async def main():
-    sender = await BrowserRequestSender("https://seller.ozon.ru/app/reviews").init()
-    api = OzonApi(sender)
-    service = OzonService(api)
-    await service.get_today_prices("836045")
+    # sender = await BrowserRequestSender("https://seller.ozon.ru/app/reviews").init()
+    # api = OzonApi(sender)
+    service = OzonService(None)
+    # await service.get_today_prices("836045")
+    await service.prepare_excel_report(datetime.now(UTC).date())
 
 if __name__ == '__main__':
     asyncio.run(main())
