@@ -9,21 +9,6 @@
   <style>
     .price-change-up { color: green; }
     .price-change-down { color: red; }
-    .table-container {
-      overflow-y: auto;
-      max-height: 70vh;
-      margin: 1em 0;
-      position: relative;
-    }
-    table {
-      width: 100%;
-    }
-    thead {
-      position: sticky;
-      top: 0;
-      background: white;
-      z-index: 1;
-    }
   </style>
 </head>
 <body class="pure-g" style="padding: 1em; max-width: 1200px; margin: 0 auto;">
@@ -37,8 +22,7 @@
       </div>
     </form>
     
-    <div class="table-container">
-      <table class="pure-table pure-table-bordered pure-table-striped">
+    <table class="pure-table pure-table-bordered pure-table-striped">
       <caption><h2>Price Changes</h2></caption>
       <thead>
         <tr>
@@ -58,7 +42,6 @@
         <!-- Prices will be loaded here via HTMX -->
       </tbody>
     </table>
-    </div>
   </div>
 </body>
 </html>
