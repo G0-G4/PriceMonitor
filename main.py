@@ -69,11 +69,11 @@ async def get_prices(
         "partials/price.html",
         {
             "request": request,
-            "prices": price_response.price_changes,
+            "prices": price_changes,
             "current_page": page,
             "total_pages": total_pages,
             "company_id": company_id,
-            "target_date": target_date.isoformat()
+            "target_date": target_date_obj.isoformat()
         }
     )
 

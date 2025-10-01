@@ -6,8 +6,8 @@
   <td>{{ price.today_seller_price }}</td>
   <td>{{ price.yesterday_seller_price }}</td>
   <td>
-    {{ price.today_spp }}
-    {% if price.today_spp and price.yesterday_spp %}
+    {{ price.today_spp if price.today_spp is not none else '' }}
+    {% if price.today_spp is not none and price.yesterday_spp is not none %}
       {% set change = ((price.today_spp - price.yesterday_spp) / price.yesterday_spp * 100) if price.yesterday_spp else 0 %}
       {% if change > 0 %}
         <span class="price-change-up">↑ {{ "%.2f"|format(change) }}%</span>
@@ -17,8 +17,8 @@
     {% endif %}
   </td>
   <td>
-    {{ price.today_ozon_card }}
-    {% if price.today_ozon_card and price.yesterday_ozon_card %}
+    {{ price.today_ozon_card if price.today_ozon_card is not none else '' }}
+    {% if price.today_ozon_card is not none and price.yesterday_ozon_card is not none %}
       {% set change = ((price.today_ozon_card - price.yesterday_ozon_card) / price.yesterday_ozon_card * 100) if price.yesterday_ozon_card else 0 %}
       {% if change > 0 %}
         <span class="price-change-up">↑ {{ "%.2f"|format(change) }}%</span>
