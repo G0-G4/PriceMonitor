@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, Query, Depends, HTTPException, status
+from fastapi import FastAPI, Request, Form, Query, Depends, HTTPException, status, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -81,10 +81,28 @@ async def settings(request: Request):
         "request": request,
     })
 
+@app.post("/company_ids", response_class=HTMLResponse)
+async def add_company_id(company_id: str = Form(...)):
+    await add_company_ids([company_id])
+    company_ids = await get_company_ids()
+    return templates.TemplateResponse("partials/company_ids.html", {
+        "request": Request,
+        "company_ids": company_ids
+    })
+
+@app.delete("/company_ids/{company_id}", response_class=HTMLResponse)
+async def remove_company_id(company_id: str):
+    await delete_company_id(company_id)
+    company_ids = await get_company_ids()
+    return templates.TemplateResponse("partials/company_ids.html", {
+        "request": Request,
+        "company_ids": company_ids
+    })
+
 @app.get("/company_ids", response_class=HTMLResponse)
-async def settings(request: Request):
-    company_ids = get_company_ids()
-    return templates.TemplateResponse("settings.html", {
+async def show_company_ids(request: Request):
+    company_ids = await get_company_ids()
+    return templates.TemplateResponse("partials/company_ids.html", {
         "request": request,
         "company_ids": company_ids
     })

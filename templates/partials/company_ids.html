@@ -1,3 +1,13 @@
 
 {% for company_id in company_ids %}
+<tr>
+  <td>{{ company_id }}</td>
+  <td>
+    <button class="pure-button button-error" 
+            hx-delete="/company_ids/{{ company_id }}" 
+            hx-target="#company-list">
+      Delete
+    </button>
+  </td>
+</tr>
 {% endfor %}
