@@ -1,0 +1,6 @@
+<h2>Cookies</h2>
+<form class="pure-form" hx-post="/cookies" hx-target="#cookies-status">
+  <textarea name="cookies" rows="4" cols="50" placeholder="Enter cookies JSON">{{ cookies }}</textarea>
+  <button type="submit" class="pure-button pure-button-primary">Save Cookies</button>
+  <span id="cookies-status" style="margin-left: 10px;"></span>
+</form>
