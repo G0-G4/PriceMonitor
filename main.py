@@ -5,7 +5,10 @@ from fastapi.templating import Jinja2Templates
 from datetime import datetime, date
 
 from models.database import session_maker
-from persistence.parameters_db import get_company_ids, add_company_ids, delete_company_id, get_cookies, upsert_cookies
+from persistence.parameters_db import add_scheduled_time, delete_scheduled_time, get_company_ids, add_company_ids, \
+    delete_company_id, \
+    get_cookies, \
+    get_scheduled_times, upsert_cookies
 from service.ozon_service import OzonService
 from api.ozon_api import OzonApi
 from browser_request_sender import BrowserRequestSender
@@ -126,7 +129,7 @@ async def update_cookies(request: Request, cookies: str = Form(...)):
     })
 
 @app.post("/scheduled_times", response_class=HTMLResponse)
-async def add_scheduled_time(request: Request, scheduled_time: str = Form(...)):
+async def add_scheduled_time_endpoint(request: Request, scheduled_time: str = Form(...)):
     if scheduled_time.strip():
         await add_scheduled_time([scheduled_time])
     scheduled_times = await get_scheduled_times()

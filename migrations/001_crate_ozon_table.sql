@@ -1,18 +1,9 @@
-CREATE TABLE IF NOT EXISTS OzonPrice
+CREATE TABLE IF NOT EXISTS Parameter
 (
-    company_id STRING, -- id компании ozon
-    item_id STRING, -- id товара ozon
-    offer_id STRING, --  один из id товаров
-    date DATE, -- дата получения цены
-    marketing_seller_price DOUBLE, -- цена продажи
-    old_price DOUBLE, -- зачеркнутая цена на карточке товара
-    marketing_price DOUBLE, -- цена с картой озона
-    marketing_oa_price DOUBLE, -- СПП
-    PRIMARY KEY (offer_id, date, company_id)
+    parameter_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT, -- название параметра
+    value TEXT -- значение параметра
 );
 
-CREATE INDEX idx_ozon_price_item_id ON OzonPrice (item_id);
-CREATE INDEX idx_ozon_price_offer_id ON OzonPrice (offer_id);
-CREATE INDEX idx_ozon_price_date ON OzonPrice (date);
+CREATE INDEX idx_parameters_name ON Parameter (name);
 
-ALTER TABLE OzonPrice ADD COLUMN name STRING

@@ -182,9 +182,9 @@ class OzonService:
 async def main():
     sender = await BrowserRequestSender("https://seller.ozon.ru/app/reviews").init()
     api = OzonApi(sender)
-    service = OzonService(None)
-    # await service.get_today_prices("836045")
-    await service.prepare_excel_report(datetime.now(UTC).date() + timedelta(days=1))
+    service = OzonService(api)
+    await service.get_today_prices("836045")
+    # await service.prepare_excel_report(datetime.now(UTC).date() + timedelta(days=1))
 
 if __name__ == '__main__':
     asyncio.run(main())

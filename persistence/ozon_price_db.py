@@ -100,8 +100,8 @@ async def get_ozon_price_change(
     return [
         PriceChange(
             date=target_date,
-            company_id=str(row.company_id),
-            offer_id=str(row.offer_id),
+            company_id=row.company_id,
+            offer_id=row.offer_id,
             name=row.name,
             today_seller_price=row.today_seller_price,
             today_spp=row.today_spp,
