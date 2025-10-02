@@ -78,9 +78,11 @@ async def get_prices(
 @app.get("/settings", response_class=HTMLResponse)
 async def settings(request: Request):
     company_ids = await get_company_ids()
+    cookies = await get_cookies()
     return templates.TemplateResponse("settings.html", {
         "request": request,
-        "company_ids": company_ids
+        "company_ids": company_ids,
+        "cookies": cookies.value if cookies else ""
     })
 
 @app.post("/company_ids", response_class=HTMLResponse)
@@ -108,6 +110,15 @@ async def show_company_ids(request: Request):
     return templates.TemplateResponse("partials/company_ids.html", {
         "request": request,
         "company_ids": company_ids
+    })
+
+@app.post("/cookies", response_class=HTMLResponse)
+async def update_cookies(request: Request, cookies: str = Form(...)):
+    await upsert_cookies(cookies)
+    current_cookies = await get_cookies()
+    return templates.TemplateResponse("partials/cookies.html", {
+        "request": request,
+        "cookies": current_cookies.value if current_cookies else ""
     })
 
 if __name__ == '__main__':
