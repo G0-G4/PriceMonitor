@@ -80,10 +80,12 @@ async def get_prices(
 async def settings(request: Request):
     company_ids = await get_company_ids()
     cookies = await get_cookies()
+    scheduled_times = await get_scheduled_times()
     return templates.TemplateResponse("settings.html", {
         "request": request,
         "company_ids": company_ids,
-        "cookies": cookies.value if cookies else ""
+        "cookies": cookies.value if cookies else "",
+        "scheduled_times": scheduled_times
     })
 
 @app.post("/company_ids", response_class=HTMLResponse)
@@ -121,6 +123,33 @@ async def update_cookies(request: Request, cookies: str = Form(...)):
         "request": request,
         "cookies": current_cookies.value if current_cookies else "",
         "saved": True
+    })
+
+@app.post("/scheduled_times", response_class=HTMLResponse)
+async def add_scheduled_time(request: Request, scheduled_time: str = Form(...)):
+    if scheduled_time.strip():
+        await add_scheduled_time([scheduled_time])
+    scheduled_times = await get_scheduled_times()
+    return templates.TemplateResponse("partials/scheduled_times.html", {
+        "request": request,
+        "scheduled_times": scheduled_times
+    })
+
+@app.delete("/scheduled_times/{scheduled_time}", response_class=HTMLResponse)
+async def remove_scheduled_time(request: Request, scheduled_time: str):
+    await delete_scheduled_time(scheduled_time)
+    scheduled_times = await get_scheduled_times()
+    return templates.TemplateResponse("partials/scheduled_times.html", {
+        "request": request,
+        "scheduled_times": scheduled_times
+    })
+
+@app.get("/scheduled_times", response_class=HTMLResponse)
+async def show_scheduled_times(request: Request):
+    scheduled_times = await get_scheduled_times()
+    return templates.TemplateResponse("partials/scheduled_times.html", {
+        "request": request,
+        "scheduled_times": scheduled_times
     })
 
 if __name__ == '__main__':
