@@ -94,6 +94,19 @@ class OzonService:
         yesterday = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
         filename = f"/Users/g.grishenkov/projects/PriceMonitor/price_changes_report_{report_date}_{company_id}.xlsx"
         
+        # First check if there's any data
+        response = await self.get_price_change(
+            target_date=target_date,
+            limit=1,
+            offset=0,
+            company_id=company_id,
+            offer_id=offer_id
+        )
+        
+        if not response.price_changes:
+            logger.warning(f"No price changes found for {report_date} and company {company_id}")
+            return None
+            
         limit = 50
         offset = 0
         first_page = True
