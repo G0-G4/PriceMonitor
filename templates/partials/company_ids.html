@@ -1,4 +1,12 @@
 
+<tr>
+  <td colspan="2">
+    <form class="pure-form" hx-post="/company_ids" hx-target="#company-list">
+      <input type="text" name="company_id" placeholder="New Company ID" required>
+      <button type="submit" class="pure-button pure-button-primary">Add</button>
+    </form>
+  </td>
+</tr>
 {% for company_id in company_ids %}
 <tr>
   <td>{{ company_id }}</td>

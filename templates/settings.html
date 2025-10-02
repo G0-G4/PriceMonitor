@@ -18,16 +18,10 @@
     <div class="pure-u-1">
       <h1>Company IDs</h1>
       
-      <form class="pure-form" hx-post="/company_ids" hx-target="#company-list">
-        <input type="text" name="company_id" placeholder="New Company ID" required>
-        <button type="submit" class="pure-button pure-button-primary">Add</button>
-      </form>
-      
       <table class="pure-table pure-table-bordered" style="margin-top: 20px">
         <thead>
           <tr>
-            <th>Company ID</th>
-            <th>Actions</th>
+            <th colspan="2">Company IDs</th>
           </tr>
         </thead>
         <tbody id="company-list">
