@@ -84,8 +84,9 @@ async def settings(request: Request):
     })
 
 @app.post("/company_ids", response_class=HTMLResponse)
-async def add_company_id(company_id: str = Form(...)):
-    await add_company_ids([company_id])
+async def add_company_id(request: Request, company_id: str = Form(...)):
+    if company_id.strip():
+        await add_company_ids([company_id])
     company_ids = await get_company_ids()
     return templates.TemplateResponse("partials/company_ids.html", {
         "request": request,
@@ -93,7 +94,7 @@ async def add_company_id(company_id: str = Form(...)):
     })
 
 @app.delete("/company_ids/{company_id}", response_class=HTMLResponse)
-async def remove_company_id(company_id: str):
+async def remove_company_id(request: Request, company_id: str):
     await delete_company_id(company_id)
     company_ids = await get_company_ids()
     return templates.TemplateResponse("partials/company_ids.html", {
