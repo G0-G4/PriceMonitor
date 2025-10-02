@@ -92,7 +92,7 @@ class OzonService:
     async def prepare_excel_report(self, target_date: date, company_id: str|None = None, offer_id: str|None = None):
         report_date = target_date.strftime("%Y-%m-%d")
         yesterday = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
-        filename = f"price_changes_report_{report_date}.xlsx"
+        filename = f"/Users/g.grishenkov/projects/PriceMonitor/price_changes_report_{report_date}_{company_id}.xlsx"
         
         limit = 50
         offset = 0
@@ -183,8 +183,8 @@ async def main():
     sender = await BrowserRequestSender("https://seller.ozon.ru/app/reviews").init()
     api = OzonApi(sender)
     service = OzonService(api)
-    await service.get_today_prices("836045")
-    # await service.prepare_excel_report(datetime.now(UTC).date() + timedelta(days=1))
+    # await service.get_today_prices("836045")
+    await service.prepare_excel_report(datetime.now().date(),'836045')
 
 if __name__ == '__main__':
     asyncio.run(main())
