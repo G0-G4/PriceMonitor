@@ -119,7 +119,8 @@ async def update_cookies(request: Request, cookies: str = Form(...)):
     current_cookies = await get_cookies()
     return templates.TemplateResponse("partials/cookies.html", {
         "request": request,
-        "cookies": current_cookies.value if current_cookies else ""
+        "cookies": current_cookies.value if current_cookies else "",
+        "saved": True
     })
 
 if __name__ == '__main__':
