@@ -77,8 +77,10 @@ async def get_prices(
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings(request: Request):
+    company_ids = await get_company_ids()
     return templates.TemplateResponse("settings.html", {
         "request": request,
+        "company_ids": company_ids
     })
 
 @app.post("/company_ids", response_class=HTMLResponse)
@@ -86,7 +88,7 @@ async def add_company_id(company_id: str = Form(...)):
     await add_company_ids([company_id])
     company_ids = await get_company_ids()
     return templates.TemplateResponse("partials/company_ids.html", {
-        "request": Request,
+        "request": request,
         "company_ids": company_ids
     })
 
@@ -95,7 +97,7 @@ async def remove_company_id(company_id: str):
     await delete_company_id(company_id)
     company_ids = await get_company_ids()
     return templates.TemplateResponse("partials/company_ids.html", {
-        "request": Request,
+        "request": request,
         "company_ids": company_ids
     })
 
