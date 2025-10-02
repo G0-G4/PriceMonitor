@@ -4,7 +4,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from datetime import datetime, date
 
-from persistence.parameters_db import get_company_ids, add_company_ids, delete_company_id
+from models.database import session_maker
+from persistence.parameters_db import get_company_ids, add_company_ids, delete_company_id, get_cookies, upsert_cookies
 from service.ozon_service import OzonService
 from api.ozon_api import OzonApi
 from browser_request_sender import BrowserRequestSender
