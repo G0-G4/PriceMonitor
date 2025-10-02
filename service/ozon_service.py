@@ -44,12 +44,11 @@ class OzonService:
     def __init__(self, api: OzonApi):
         self.api = api
 
-    async def get_today_prices(self, company_id: str):
+    async def get_ozon_prices(self, today: date, company_id: str):
         limit = 50
         offset = 0
         has_next = True
         page = 1
-        today = datetime.now(UTC).date()
         while has_next:
             products_response = await self.api.list_by_filter(company_id, limit=limit, offset=offset)
             item_ids = [item.item_id for item in products_response.products]
@@ -92,7 +91,7 @@ class OzonService:
     async def prepare_excel_report(self, target_date: date, company_id: str|None = None, offer_id: str|None = None):
         report_date = target_date.strftime("%Y-%m-%d")
         yesterday = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
-        filename = f"/Users/g.grishenkov/projects/PriceMonitor/price_changes_report_{report_date}_{company_id}.xlsx"
+        filename = f"price_changes_report_{report_date}_{company_id}.xlsx"
         
         # First check if there's any data
         response = await self.get_price_change(
@@ -197,7 +196,7 @@ async def main():
     api = OzonApi(sender)
     service = OzonService(api)
     # await service.get_today_prices("836045")
-    await service.prepare_excel_report(datetime.now().date(),'836045')
+    await service.prepare_excel_report(datetime.now().date(),'1104328')
 
 if __name__ == '__main__':
     asyncio.run(main())

@@ -1,10 +1,12 @@
-from fastapi import FastAPI, Request, Form, Query, Depends, HTTPException, status, Response
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, Form, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from datetime import datetime, date
+from datetime import date
+import os
+import sqlite3
 
-from models.database import session_maker
 from persistence.parameters_db import add_scheduled_time, delete_scheduled_time, get_company_ids, add_company_ids, \
     delete_company_id, \
     get_cookies, \
@@ -14,12 +16,20 @@ from api.ozon_api import OzonApi
 from browser_request_sender import BrowserRequestSender
 import uvicorn
 
-app = FastAPI()
+from service.scheduler_service import ScedulerService
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler_service = await get_scheduler_service()
+    await scheduler_service.restart_scheduler()
+    yield
+app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 
 sender = None
 api = None
-service = None
+scheduler_service = None
 
 async def get_service():
     global sender, api, service
@@ -28,6 +38,12 @@ async def get_service():
         api = OzonApi(sender)
         service = OzonService(api)
     return service
+
+async def get_scheduler_service():
+    global scheduler_service
+    if scheduler_service is None:
+        scheduler_service = ScedulerService(await get_service())
+    return scheduler_service
 
 @app.get("/", response_class=HTMLResponse)
 async def get_items(request: Request):
@@ -133,6 +149,8 @@ async def add_scheduled_time_endpoint(request: Request, scheduled_time: str = Fo
     if scheduled_time.strip():
         await add_scheduled_time([scheduled_time])
     scheduled_times = await get_scheduled_times()
+    scheduler_service = await get_scheduler_service()
+    await scheduler_service.restart_scheduler()
     return templates.TemplateResponse("partials/scheduled_times.html", {
         "request": request,
         "scheduled_times": scheduled_times
@@ -142,6 +160,8 @@ async def add_scheduled_time_endpoint(request: Request, scheduled_time: str = Fo
 async def remove_scheduled_time(request: Request, scheduled_time: str):
     await delete_scheduled_time(scheduled_time)
     scheduled_times = await get_scheduled_times()
+    scheduler_service = await get_scheduler_service()
+    await scheduler_service.restart_scheduler()
     return templates.TemplateResponse("partials/scheduled_times.html", {
         "request": request,
         "scheduled_times": scheduled_times
