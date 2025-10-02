@@ -3,6 +3,8 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from datetime import datetime, date
+
+from persistence.parameters_db import get_company_ids
 from service.ozon_service import OzonService
 from api.ozon_api import OzonApi
 from browser_request_sender import BrowserRequestSender
@@ -72,6 +74,20 @@ async def get_prices(
             "format_percentage": lambda value: f"{value:.1f}"
         }
     )
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings(request: Request):
+    return templates.TemplateResponse("settings.html", {
+        "request": request,
+    })
+
+@app.get("/company_ids", response_class=HTMLResponse)
+async def settings(request: Request):
+    company_ids = get_company_ids()
+    return templates.TemplateResponse("settings.html", {
+        "request": request,
+        "company_ids": company_ids
+    })
 
 if __name__ == '__main__':
     uvicorn.run(app, host="127.0.0.1", port=8000)
