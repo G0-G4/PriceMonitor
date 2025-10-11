@@ -75,7 +75,7 @@ class OzonService:
         yesterday = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
         base_path = await get_report_path()
         if not base_path:
-            base_path = '/'
+            base_path = './'
         else:
             base_path = base_path.value
 
