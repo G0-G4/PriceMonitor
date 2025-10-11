@@ -1,0 +1,4 @@
+{
+  "LOG_LEVEL": "DEBUG",
+  "HEADLESS_BROWSER": true
+}

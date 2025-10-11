@@ -3,6 +3,7 @@ import json
 import logging
 import asyncio
 
+from src.config import HEADLESS_BROWSER
 from src.persistence.parameters_db import get_cookies
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ class BrowserRequestSender:
         self.pw = await async_playwright().start()
         self.browser = await self.pw.chromium.launch(
             channel='chrome',
-            headless=False,
+            headless=HEADLESS_BROWSER,
             args=[
                 '--disable-blink-features=AutomationControlled',
             ]
