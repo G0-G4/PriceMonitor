@@ -41,7 +41,8 @@ includes = [
     "uvicorn.loops.auto",
     "uvicorn.protocols.http.auto",
     "uvicorn.protocols.websockets.auto",
-    "uvicorn.lifespan"
+    "uvicorn.lifespan",
+    "playwright"
 ]
 excludes = [
     "tkinter",
@@ -53,8 +54,6 @@ packages = [
     "aiosqlite",
     "uvicorn.loops",
     "uvicorn.protocols",
-    "uvicorn.lifespan"
+    "uvicorn.lifespan",
+    "playwright"
 ]
-# For portable builds, we'll include everything
-zip_include_packages = ["*"]
-zip_exclude_packages = []
