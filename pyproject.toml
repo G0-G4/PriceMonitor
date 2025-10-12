@@ -18,3 +18,43 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.43",
     "uvicorn==0.33.0",
 ]
+
+
+[tool.cxfreeze]
+executables = [
+    {script = "main.py", target_name = "PriceMonitor"}
+]
+
+[tool.cxfreeze.build_exe]
+include_files = [
+    "templates/",
+    "migrations/",
+    "config.json",
+    ".env"
+]
+includes = [
+    "jinja2.ext",
+    "apscheduler.triggers.cron",
+    "apscheduler.triggers.interval",
+    "aiosqlite",
+    "uvicorn",
+    "uvicorn.loops.auto",
+    "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.websockets.auto",
+    "uvicorn.lifespan"
+]
+excludes = [
+    "tkinter",
+    "test",
+    "unittest"
+]
+packages = [
+    "sqlalchemy.ext.asyncio",
+    "aiosqlite",
+    "uvicorn.loops",
+    "uvicorn.protocols",
+    "uvicorn.lifespan"
+]
+# For portable builds, we'll include everything
+zip_include_packages = ["*"]
+zip_exclude_packages = []
