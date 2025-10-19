@@ -49,18 +49,19 @@ class ScedulerService:
             date = datetime.now().date()
             company_ids = await get_company_ids()
             for company_id in company_ids:
-                task = Task(name=company_id, status='getting prices')
-                await save_task(task)
-                await self.ozon_service.get_ozon_prices(date, company_id)
-                task.status = 'generating report'
-                await save_task(task)
-                await self.ozon_service.prepare_excel_report(date, company_id)
-                task.status = 'FINISHED'
-                await save_task(task)
-        except Exception as e:
-            logger.exception(e)
-            if task:
-                task.status = "ERROR: " + str(e)
-                await save_task(task)
+                try:
+                    task = Task(name=company_id, status='getting prices')
+                    await save_task(task)
+                    await self.ozon_service.get_ozon_prices(date, company_id)
+                    task.status = 'generating report'
+                    await save_task(task)
+                    await self.ozon_service.prepare_excel_report(date, company_id)
+                    task.status = 'FINISHED'
+                    await save_task(task)
+                except Exception as e:
+                    logger.exception(e)
+                    if task:
+                        task.status = "ERROR: " + str(e)
+                        await save_task(task)
         finally:
             self._is_running = False
