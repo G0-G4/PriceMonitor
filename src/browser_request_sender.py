@@ -3,7 +3,7 @@ import json
 import logging
 import asyncio
 
-from src.config import HEADLESS_BROWSER
+from src.config import BROWSER_STARTUP_SLEEP_SECONDS, HEADLESS_BROWSER, SUSPEND_AFTER_BROWSER_STARTUP
 from src.persistence.parameters_db import get_cookies
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,9 @@ class BrowserRequestSender:
 
         self.page.on('console', on_console)
         await self.page.goto(self.base_url)
+        await asyncio.sleep(BROWSER_STARTUP_SLEEP_SECONDS)
+        if SUSPEND_AFTER_BROWSER_STARTUP:
+            input("suspend after browser startup. Enter anything to continue")
         return self
 
     async def close(self):
