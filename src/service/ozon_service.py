@@ -116,7 +116,8 @@ class OzonService:
                 df = pd.DataFrame([price.model_dump() for price in response.price_changes])
 
                 column_order = [
-                    'date', 'company_id', 'offer_id', 'name',
+                    'offer_id',
+                    'name',
                     'yesterday_seller_price',
                     'yesterday_spp',
                     'yesterday_ozon_card',
@@ -149,7 +150,7 @@ class OzonService:
                     # Add formula after writing
                     sheet = writer.sheets['Price Changes']
                     for row in range(2, len(df) + 2):
-                        formula = f'=J{row}/G{row}'
+                        formula = f'=H{row}/E{row}'
                         sheet.cell(row=row, column=len(df.columns)).value = formula
                     first_page = False
                 else:
