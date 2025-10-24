@@ -47,11 +47,6 @@ async def save_ozon_prices(prices: list[OzonPrice]):
         
     logger.info(f"Bulk upserted {len(prices)} prices")
 
-
-
-logger = logging.getLogger(__name__)
-
-
 async def get_ozon_price_change(
     session,
     target_date: date,
@@ -69,11 +64,11 @@ async def get_ozon_price_change(
         OzonPrice.offer_id,
         OzonPrice.name,
         OzonPrice.marketing_seller_price.label('today_seller_price'),
-        OzonPrice.marketing_oa_price.label('today_spp'),
-        OzonPrice.marketing_price.label('today_ozon_card'),
+        OzonPrice.marketing_oa_price.label('today_ozon_card'),
+        OzonPrice.marketing_price.label('today_spp'),
         OzonPriceYesterday.marketing_seller_price.label('yesterday_seller_price'),
-        OzonPriceYesterday.marketing_oa_price.label('yesterday_spp'),
-        OzonPriceYesterday.marketing_price.label('yesterday_ozon_card')
+        OzonPriceYesterday.marketing_oa_price.label('yesterday_ozon_card'),
+        OzonPriceYesterday.marketing_price.label('yesterday_spp')
     ).select_from(
         OzonPrice
     ).outerjoin(
