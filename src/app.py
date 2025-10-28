@@ -62,6 +62,7 @@ logging.getLogger('aiosqlite').setLevel(logging.WARNING)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("VERSION 1.1.0")
     from src.models.database import setup_migrations
     await setup_migrations()
     
