@@ -9,7 +9,8 @@ from src.dto.price_dto import Price
 
 from src.models.database import session_maker
 from src.models.ozon_price import OzonPrice
-from src.persistence.ozon_price_db import count_ozon_price_change, get_ozon_price_change, save_ozon_prices
+from src.persistence.ozon_price_db import count_ozon_price_change, get_ozon_price_change, get_previous_day, \
+    save_ozon_prices
 from src.persistence.parameters_db import get_report_path
 import os
 import logging
@@ -43,10 +44,10 @@ class OzonService:
             await self.api.close_browser()
 
 
-    async def get_price_change(self, target_date: date, limit: int = 50, offset: int = 0, company_id: str|None = None, offer_id: str|None = None) -> PriceChangeResponse:
+    async def get_price_change(self, target_date: date, previous_date: date, limit: int = 50, offset: int = 0, company_id: str|None = None, offer_id: str|None = None) -> PriceChangeResponse:
         async with session_maker() as session, session.begin():
-            ozon_prices = await get_ozon_price_change(session, target_date, limit, offset, company_id, offer_id)
-            total = await count_ozon_price_change(session, target_date, company_id, offer_id)
+            ozon_prices = await get_ozon_price_change(session, target_date, previous_date, limit, offset, company_id, offer_id)
+            total = await count_ozon_price_change(session, target_date, previous_date, company_id, offer_id)
             return PriceChangeResponse(price_changes=ozon_prices, total=total)
 
     async def convert_and_save_ozon_prices(self, items: list[Item], prices: list[Price], today: date):
@@ -71,8 +72,8 @@ class OzonService:
 
     async def prepare_excel_report(self, target_date: date, company_id: str|None = None, offer_id: str|None = None):
         report_date = target_date.strftime("%Y-%m-%d")
-        report_date_time = datetime.now().strftime("%Y-%m-%d_%H-%m-%S")
-        yesterday = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
+        report_date_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        previous_date = (await get_previous_day(target_date)) or (target_date - timedelta(days=1))
         base_path = await get_report_path()
         if not base_path:
             base_path = './'
@@ -84,6 +85,7 @@ class OzonService:
         # First check if there's any data
         response = await self.get_price_change(
             target_date=target_date,
+            previous_date=previous_date,
             limit=1,
             offset=0,
             company_id=company_id,
@@ -103,6 +105,7 @@ class OzonService:
                 # Get price changes page by page
                 response = await self.get_price_change(
                     target_date=target_date,
+                    previous_date=previous_date,
                     limit=limit,
                     offset=offset,
                     company_id=company_id,
@@ -134,9 +137,9 @@ class OzonService:
                     'today_seller_price': 'Цена Продажи ' + report_date,
                     'today_spp': 'СПП ' + report_date,
                     'today_ozon_card': 'Карта Озон ' + report_date,
-                    'yesterday_seller_price': 'Цена Продажи ' + yesterday,
-                    'yesterday_spp': 'СПП ' + yesterday,
-                    'yesterday_ozon_card': 'Карта Озон ' + yesterday
+                    'yesterday_seller_price': 'Цена Продажи ' + previous_date.strftime("%Y-%m-%d"),
+                    'yesterday_spp': 'СПП ' + previous_date.strftime("%Y-%m-%d"),
+                    'yesterday_ozon_card': 'Карта Озон ' + previous_date.strftime("%Y-%m-%d")
                 }
                 df = df.rename(columns=column_rename)
                 
@@ -166,7 +169,7 @@ class OzonService:
                     # Add formula for new rows
                     sheet = writer.sheets['Price Changes']
                     for row in range(startrow + 1, startrow + len(df) + 1):
-                        formula = f'=J{row}/G{row}'
+                        formula = f'=H{row}/E{row}'
                         sheet.cell(row=row, column=len(df.columns)).value = formula
 
                 offset += limit

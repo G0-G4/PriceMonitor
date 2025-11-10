@@ -1,3 +1,18 @@
+<thead>
+  <tr>
+    <th>Date</th>
+    <th>Company ID</th>
+    <th>Offer ID</th>
+    <th>Name</th>
+    <th>{{ previous_date }} Seller Price</th>
+    <th>{{ previous_date }} SPP</th>
+    <th>{{ previous_date }} Ozon Card</th>
+    <th>{{ target_date }} Seller Price</th>
+    <th>{{ target_date }} SPP</th>
+    <th>{{ target_date }} Ozon Card</th>
+    <th>Change %</th>
+  </tr>
+</thead>
 {% for price in prices %}
 <tr>
   <td>{{ price.date }}</td>
@@ -32,7 +47,7 @@
              {% if company_id %}&company_id={{ company_id }}{% endif %}
              {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
              &target_date={{ target_date }}"
-             hx-target="tbody"
+             hx-target="table"
              hx-swap="innerHTML">Previous</a>
         </li>
       {% endif %}
@@ -46,7 +61,7 @@
              {% if company_id %}&company_id={{ company_id }}{% endif %}
              {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
              &target_date={{ target_date }}"
-             hx-target="tbody"
+             hx-target="table"
              hx-swap="innerHTML">Next</a>
         </li>
       {% endif %}
