@@ -47,7 +47,7 @@
              {% if company_id %}&company_id={{ company_id }}{% endif %}
              {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
              &target_date={{ target_date }}"
-             hx-target="tbody"
+             hx-target="table"
              hx-swap="innerHTML">Previous</a>
         </li>
       {% endif %}
@@ -61,7 +61,7 @@
              {% if company_id %}&company_id={{ company_id }}{% endif %}
              {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
              &target_date={{ target_date }}"
-             hx-target="tbody"
+             hx-target="table"
              hx-swap="innerHTML">Next</a>
         </li>
       {% endif %}
