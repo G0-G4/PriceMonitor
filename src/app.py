@@ -4,13 +4,14 @@ from logging import getLevelNamesMapping
 from fastapi import FastAPI, Request, Form, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from datetime import date
+from datetime import date, timedelta
 import os
 import json
 
 from src.api.ozon_api import OzonApi
 from src.config import LOG_LEVEL
 from src.models.database import session_maker
+from src.persistence.ozon_price_db import get_previous_day
 from src.persistence.parameters_db import add_scheduled_time, delete_scheduled_time, get_company_ids, add_company_ids, \
     delete_company_id, \
     get_cookies, \
@@ -62,7 +63,7 @@ logging.getLogger('aiosqlite').setLevel(logging.WARNING)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("VERSION 1.1.0")
+    logger.info("VERSION 1.2.0")
     from src.models.database import setup_migrations
     await setup_migrations()
     
@@ -115,8 +116,10 @@ async def get_prices(
     except ValueError:
         target_date_obj = date.today()
 
+    previous_date = (await get_previous_day(target_date_obj)) or (target_date_obj - timedelta(days=1))
     price_change_response = await service.get_price_change(
         target_date=target_date_obj,
+        previous_date=previous_date,
         limit=ITEMS_PER_PAGE,
         offset=(page - 1) * ITEMS_PER_PAGE,
         company_id=company_id,
@@ -136,7 +139,8 @@ async def get_prices(
             "company_id": company_id,
             "offer_id": offer_id,
             "target_date": target_date_obj.isoformat(),
-            "format_percentage": lambda value: f"{value:.1f}"
+            "previous_date": previous_date.strftime("%Y-%m-%d"),
+            "format_percentage": lambda value: f"{value:.4f}"
         }
     )
 

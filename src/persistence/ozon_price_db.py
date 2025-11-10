@@ -50,6 +50,7 @@ async def save_ozon_prices(prices: list[OzonPrice]):
 async def get_ozon_price_change(
     session,
     target_date: date,
+    previoud_date: date,
     limit: int = 50,
     offset: int = 0,
     company_id: str|None = None,
@@ -76,7 +77,7 @@ async def get_ozon_price_change(
         and_(
             OzonPrice.company_id == OzonPriceYesterday.company_id,
             OzonPrice.offer_id == OzonPriceYesterday.offer_id,
-            OzonPriceYesterday.date == target_date - timedelta(days=1)
+            OzonPriceYesterday.date == previoud_date
         )
     ).where(
         OzonPrice.date == target_date
@@ -111,6 +112,7 @@ async def get_ozon_price_change(
 async def count_ozon_price_change(
     session,
     target_date: date,
+    previous_date: date,
     company_id: str|None = None,
     offer_id : str|None = None
 ) -> int:
@@ -127,7 +129,7 @@ async def count_ozon_price_change(
         and_(
             OzonPrice.company_id == OzonPriceYesterday.company_id,
             OzonPrice.offer_id == OzonPriceYesterday.offer_id,
-            OzonPriceYesterday.date == target_date - timedelta(days=1)
+            OzonPriceYesterday.date == previous_date
         )
     ).where(
         OzonPrice.date == target_date
@@ -140,11 +142,21 @@ async def count_ozon_price_change(
 
     result = await session.execute(query)
     return result.scalar_one()
+
+async def get_previous_day(today: date):
+    async with session_maker() as session:
+        result = await session.execute(
+            select(OzonPrice.date)
+            .where(OzonPrice.date < today)
+            .order_by(OzonPrice.date.desc())
+            .limit(1)
+        )
+        previous_date = result.scalar_one_or_none()
+        return previous_date
+
 async def main():
-    prices = await get_ozon_price_change(datetime.now(UTC).date())
-    count = await count_ozon_price_change(datetime.now(UTC).date())
-    print(prices)
-    print(count)
+    d = await get_previous_day(datetime.now().date())
+    print(d)
 
 if __name__ == "__main__":
     asyncio.run(main())
