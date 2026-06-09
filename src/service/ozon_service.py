@@ -65,8 +65,8 @@ class OzonService:
                 date=today,
                 marketing_seller_price=price.marketing_seller_price,
                 old_price=price.old_price,
-                marketing_price=price.marketing_price,
-                marketing_oa_price=price.marketing_oa_price
+                marketing_price=price.get_marketing_price(),
+                marketing_oa_price=price.get_marketing_oa_price()
             ))
         await save_ozon_prices(ozon_prices)
 
