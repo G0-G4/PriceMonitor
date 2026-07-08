@@ -1,47 +1,39 @@
 from playwright.async_api import async_playwright
-import json
-import logging
 import asyncio
+import logging
+import os
 
-from src.config import BROWSER_STARTUP_SLEEP_SECONDS, HEADLESS_BROWSER, SUSPEND_AFTER_BROWSER_STARTUP
-from src.persistence.parameters_db import get_cookies
+from src.config import BROWSER_STARTUP_SLEEP_SECONDS, HEADLESS_BROWSER, SUSPEND_AFTER_BROWSER_STARTUP, USER_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
+LOGIN_TIMEOUT_SECONDS = 600
+
+
 def on_console(msg):
     logger.info(f"browser console {msg.text}")
+
 
 class BrowserRequestSender:
 
     def __init__(self, base_url: str):
         self.page = None
         self.pw = None
-        self.browser = None
-        self.base_url = base_url
         self.context = None
+        self.base_url = base_url
+
     async def init(self) -> "BrowserRequestSender":
+        os.makedirs(USER_DATA_DIR, exist_ok=True)
         self.pw = await async_playwright().start()
-        self.browser = await self.pw.chromium.launch(
+        self.context = await self.pw.chromium.launch_persistent_context(
+            user_data_dir=USER_DATA_DIR,
             channel='chrome',
             headless=HEADLESS_BROWSER,
             args=[
                 '--disable-blink-features=AutomationControlled',
             ]
         )
-        context = await self.browser.new_context()
-        self.context = context
-        converter = {
-            "sameSite": lambda v: 'Strict' if v.lower().strip() == 'strict' else 'Lax' if v.lower().strip() == 'lax' else 'None',
-            "partitionKey": lambda x: ""
-        }
-        cookies = await get_cookies()
-        if not cookies:
-            raise Exception("set cookies")
-        cookies = json.loads(cookies.value)
-        cookies = [{k: converter.get(k, lambda x: x)(v) for k, v in cookie.items()} for cookie in cookies]
-        await context.add_cookies(cookies)
-        self.page = await context.new_page()
-
+        self.page = await self.context.new_page()
         self.page.on('console', on_console)
         await self.page.goto(self.base_url)
         await asyncio.sleep(BROWSER_STARTUP_SLEEP_SECONDS)
@@ -50,14 +42,20 @@ class BrowserRequestSender:
         return self
 
     async def close(self):
-        if self.page:
-            await self.page.close()
+        # page is closed implicitly when context closes
         if self.context:
-            await self.context.close()
-        if self.browser:
-            await self.browser.close()
+            try:
+                await self.context.close()
+            except Exception:
+                pass
         if self.pw:
-            await self.pw.stop()
+            try:
+                await self.pw.stop()
+            except Exception:
+                pass
+        self.page = None
+        self.context = None
+        self.pw = None
 
     async def send_request(self, method: str, url: str, payload: dict) -> dict:
         request_data = {
@@ -65,6 +63,8 @@ class BrowserRequestSender:
             'url': url,
             'body': payload
         }
+        if self.page is None:
+            raise Exception("browser is not initialized")
         response = await self.page.evaluate(
             #language=js
             """async (data) => {
@@ -85,24 +85,89 @@ class BrowserRequestSender:
             }""", request_data)
 
         if response and 'error' in response:
+            status = response.get('status')
+            if status in (401, 403):
+                raise ReLoginRequiredError(response.get('error'))
             raise Exception(response.get('error'))
 
         return response
 
+    async def login(self) -> bool:
+        os.makedirs(USER_DATA_DIR, exist_ok=True)
+        self.pw = await async_playwright().start()
+        self.context = await self.pw.chromium.launch_persistent_context(
+            user_data_dir=USER_DATA_DIR,
+            channel='chrome',
+            headless=False,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+            ]
+        )
+        page = await self.context.new_page()
+        page.on('console', on_console)
+
+        markers = {"closed": False}
+
+        def on_close():
+            markers["closed"] = True
+
+        page.on("close", on_close)
+
+        try:
+            await page.goto("https://seller.ozon.ru/")
+        except Exception:
+            logger.debug("initial goto failed, waiting for user login", exc_info=True)
+
+        deadline = asyncio.get_event_loop().time() + LOGIN_TIMEOUT_SECONDS
+        timed_out = False
+        try:
+            while not markers["closed"]:
+                if asyncio.get_event_loop().time() > deadline:
+                    logger.warning("login timed out after %s seconds", LOGIN_TIMEOUT_SECONDS)
+                    timed_out = True
+                    break
+                await asyncio.sleep(1.0)
+        finally:
+            try:
+                if not page.is_closed():
+                    await page.close()
+            except Exception:
+                pass
+            try:
+                await self.context.close()
+            except Exception:
+                pass
+            try:
+                await self.pw.stop()
+            except Exception:
+                pass
+            self.page = None
+            self.context = None
+            self.pw = None
+
+        return not timed_out
+
+
+def profile_exists() -> bool:
+    if not USER_DATA_DIR or not os.path.isdir(USER_DATA_DIR):
+        return False
+    return os.path.isdir(os.path.join(USER_DATA_DIR, "Default")) or os.path.isfile(os.path.join(USER_DATA_DIR, "Local State"))
+
+
+class ReLoginRequiredError(Exception):
+    pass
+
+
 async def main():
-    payload = {
-        "company_id": "836045",
-        "item_ids": [
-            "2361753137"
-        ]
-    }
     br = BrowserRequestSender("https://seller.ozon.ru/app/reviews")
     await br.init()
-    res = await br.send_request("POST", "https://seller.ozon.ru/api/pricing-bff-service/v3/get-common-prices", payload)
+    res = await br.send_request("POST", "https://seller.ozon.ru/api/pricing-bff-service/v3/get-common-prices", {
+        "company_id": "836045",
+        "item_ids": ["2361753137"]
+    })
     print(f"res 1 {res}")
-    res = await br.send_request("POST", "https://seller.ozon.ru/api/pricing-bff-service/v3/get-common-prices", payload)
-    print(f"res 2 {res}")
-    input()
+    await br.close()
+
 
 if __name__ == '__main__':
     asyncio.run(main())

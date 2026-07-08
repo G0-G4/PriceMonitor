@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from datetime import date, timedelta
 import os
-import json
+import asyncio
 
 from src.api.ozon_api import OzonApi
 from src.config import LOG_LEVEL
@@ -14,10 +14,9 @@ from src.models.database import session_maker
 from src.persistence.ozon_price_db import get_previous_day
 from src.persistence.parameters_db import add_scheduled_time, delete_scheduled_time, get_company_ids, add_company_ids, \
     delete_company_id, \
-    get_cookies, \
-    get_report_path, get_scheduled_times, save_report_path, upsert_cookies
+    get_report_path, get_scheduled_times, save_report_path
 from src.persistence.task_db import count_tasks, get_tasks
-from src.browser_request_sender import BrowserRequestSender
+from src.browser_request_sender import BrowserRequestSender, profile_exists, ReLoginRequiredError
 import uvicorn
 import logging.handlers
 import sys
@@ -76,6 +75,9 @@ templates = Jinja2Templates(directory="templates")
 sender = None
 api = None
 scheduler_service = None
+login_lock = asyncio.Lock()
+login_in_progress = {"value": False}
+
 
 async def get_service():
     global sender, api, service
@@ -147,15 +149,15 @@ async def get_prices(
 @app.get("/settings", response_class=HTMLResponse)
 async def settings(request: Request):
     company_ids = await get_company_ids()
-    cookies = await get_cookies()
     scheduled_times = await get_scheduled_times()
     report_path = await get_report_path()
     return templates.TemplateResponse("settings.html", {
         "request": request,
         "company_ids": company_ids,
-        "cookies": cookies.value if cookies else "",
         "scheduled_times": scheduled_times,
-        "report_path": report_path.value if report_path else ""
+        "report_path": report_path.value if report_path else "",
+        "authenticated": profile_exists(),
+        "login_in_progress": login_in_progress["value"],
     })
 
 @app.post("/company_ids", response_class=HTMLResponse)
@@ -193,25 +195,61 @@ async def show_company_ids(request: Request):
         "company_ids": company_ids
     })
 
-@app.post("/cookies", response_class=HTMLResponse)
-async def update_cookies(request: Request, cookies: str = Form(...)):
-    try:
-        json.loads(cookies)
-        await upsert_cookies(cookies)
-        current_cookies = await get_cookies()
-        return templates.TemplateResponse("partials/cookies.html", {
+@app.get("/login/status", response_class=HTMLResponse)
+async def login_status(request: Request):
+    just_done = None
+    if login_in_progress.get("result") is not None and not login_in_progress.get("value"):
+        just_done = login_in_progress["result"]
+        login_in_progress["result"] = None
+    return templates.TemplateResponse("partials/auth.html", {
+        "request": request,
+        "authenticated": profile_exists(),
+        "login_in_progress": login_in_progress["value"],
+        "just_logged_in": just_done is True,
+        "error": None if just_done is None else (None if just_done else "Login failed or window closed before reaching seller.ozon.ru/app/"),
+    })
+
+
+@app.post("/login", response_class=HTMLResponse)
+async def login(request: Request):
+    if login_in_progress.get("value"):
+        return templates.TemplateResponse("partials/auth.html", {
             "request": request,
-            "cookies": current_cookies.value if current_cookies else "",
-            "saved": True
+            "authenticated": profile_exists(),
+            "login_in_progress": True,
         })
-    except Exception as e:
-        current_cookies = await get_cookies()
-        return templates.TemplateResponse("partials/cookies.html", {
-            "request": request,
-            "cookies": current_cookies.value if current_cookies else "",
-            "saved": False,
-            "error": f"Error saving cookies: {str(e)}"
-        })
+
+    async with login_lock:
+        login_in_progress["value"] = True
+        login_in_progress["result"] = None
+        global sender
+        if sender is not None:
+            try:
+                await sender.close()
+            except Exception:
+                logger.exception("failed to close existing browser sender before login")
+            sender = None
+
+        async def _run_login():
+            login_sender = BrowserRequestSender("https://seller.ozon.ru/app/reviews")
+            try:
+                success = await asyncio.wait_for(login_sender.login(), timeout=650)
+                login_in_progress["result"] = bool(success)
+            except asyncio.TimeoutError:
+                login_in_progress["result"] = False
+            except Exception:
+                logger.exception("login failed")
+                login_in_progress["result"] = False
+            finally:
+                login_in_progress["value"] = False
+
+        asyncio.create_task(_run_login())
+
+    return templates.TemplateResponse("partials/auth.html", {
+        "request": request,
+        "authenticated": profile_exists(),
+        "login_in_progress": True,
+    })
 
 @app.post("/scheduled_times", response_class=HTMLResponse)
 async def add_scheduled_time_endpoint(request: Request, scheduled_time: str = Form(...)):
