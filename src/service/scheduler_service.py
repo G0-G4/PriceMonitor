@@ -42,26 +42,33 @@ class ScedulerService:
 
     async def test_job(self):
         task = None
-        if  self._is_running:
+        if self._is_running:
             logger.warning("job is already running skipping this one")
             return
+        self._is_running = True
         try:
             date = datetime.now().date()
             company_ids = await get_company_ids()
-            for company_id in company_ids:
-                try:
-                    task = Task(name=company_id, status='getting prices')
-                    await save_task(task)
-                    await self.ozon_service.get_ozon_prices(date, company_id)
-                    task.status = 'generating report'
-                    await save_task(task)
-                    await self.ozon_service.prepare_excel_report(date, company_id)
-                    task.status = 'FINISHED'
-                    await save_task(task)
-                except Exception as e:
-                    logger.exception(e)
-                    if task:
-                        task.status = "ERROR: " + str(e)
+            await self.ozon_service.api.open_browser()
+            try:
+                for company_id in company_ids:
+                    try:
+                        task = Task(name=company_id, status='getting prices')
                         await save_task(task)
+                        await self.ozon_service.get_ozon_prices(date, company_id)
+                        task.status = 'generating report'
+                        await save_task(task)
+                        await self.ozon_service.prepare_excel_report(date, company_id)
+                        task.status = 'FINISHED'
+                        await save_task(task)
+                    except Exception as e:
+                        logger.exception(e)
+                        if task:
+                            task.status = "ERROR: " + str(e)
+                            await save_task(task)
+            finally:
+                await self.ozon_service.api.close_browser()
+        except Exception:
+            logger.exception("scheduled job failed before company loop")
         finally:
             self._is_running = False

@@ -23,6 +23,8 @@ class BrowserRequestSender:
         self.base_url = base_url
 
     async def init(self) -> "BrowserRequestSender":
+        if self.page is not None:
+            return self
         os.makedirs(USER_DATA_DIR, exist_ok=True)
         self.pw = await async_playwright().start()
         self.context = await self.pw.chromium.launch_persistent_context(
@@ -35,11 +37,25 @@ class BrowserRequestSender:
         )
         self.page = await self.context.new_page()
         self.page.on('console', on_console)
-        await self.page.goto(self.base_url)
+        await self._goto_with_retry(self.base_url)
         await asyncio.sleep(BROWSER_STARTUP_SLEEP_SECONDS)
         if SUSPEND_AFTER_BROWSER_STARTUP:
             input("suspend after browser startup. Enter anything to continue")
         return self
+
+    async def _goto_with_retry(self, url: str, attempts: int = 3) -> None:
+        last_error: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                await self.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+                return
+            except Exception as e:
+                last_error = e
+                logger.warning("goto %s failed (attempt %s/%s): %s", url, attempt, attempts, e)
+                if attempt < attempts:
+                    await asyncio.sleep(2 ** attempt)
+        assert last_error is not None
+        raise last_error
 
     async def close(self):
         # page is closed implicitly when context closes

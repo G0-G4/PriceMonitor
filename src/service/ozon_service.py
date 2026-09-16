@@ -22,26 +22,26 @@ class OzonService:
         self.api = api
 
     async def get_ozon_prices(self, today: date, company_id: str):
-        try:
-            limit = 50
-            offset = 0
-            has_next = True
-            page = 1
-            await self.api.open_browser()
-            while has_next:
-                products_response = await self.api.list_by_filter(company_id, limit=limit, offset=offset)
-                item_ids = [item.item_id for item in products_response.products]
+        limit = 50
+        offset = 0
+        has_next = True
+        page = 1
+        while has_next:
+            products_response = await self.api.list_by_filter(company_id, limit=limit, offset=offset)
+            item_ids = [item.item_id for item in products_response.products]
+            if item_ids:
                 price_response = await self.api.get_common_prices(company_id, item_ids)
+                prices = price_response.items
+            else:
+                prices = []
 
-                await self.convert_and_save_ozon_prices(products_response.products, price_response.items, today)
+            await self.convert_and_save_ozon_prices(products_response.products, prices, today)
 
-                offset += len(products_response.products)
-                has_next = len(products_response.products) > 0
-                logger.info(f"loaded {len(products_response.products)} products on {page} page")
-                page += 1
-                await asyncio.sleep(0.5)
-        finally:
-            await self.api.close_browser()
+            offset += len(products_response.products)
+            has_next = len(products_response.products) > 0
+            logger.info(f"loaded {len(products_response.products)} products on {page} page")
+            page += 1
+            await asyncio.sleep(0.5)
 
 
     async def get_price_change(self, target_date: date, previous_date: date, limit: int = 50, offset: int = 0, company_id: str|None = None, offer_id: str|None = None) -> PriceChangeResponse:
@@ -54,9 +54,10 @@ class OzonService:
         price_map:dict[str, Price] = {price.item_id : price for price in prices}
         ozon_prices = []
         for item in items:
-            if item.item_id not in price_map:
-                logger.warning(f"price not found for {item}. it will not be saved")
             price = price_map.get(item.item_id)
+            if price is None:
+                logger.warning(f"price not found for {item}. it will not be saved")
+                continue
             ozon_prices.append(OzonPrice(
                 company_id=item.company_id,
                 item_id=item.item_id,
