@@ -1,7 +1,7 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from src.models.task import Task
-from src.persistence.parameters_db import get_company_ids, get_scheduled_times
+from src.persistence.parameters_db import get_company_ids, get_scheduled_times, get_wb_accounts
 import logging
 
 from datetime import datetime
@@ -9,9 +9,8 @@ from datetime import datetime
 from src.persistence.task_db import save_task
 from src.service.ozon_service import OzonService
 from src.service.wb_service import WbService
-from src.persistence.parameters_db import get_wb_api_token
 from src.browser_request_sender import profile_exists
-from src.config import WB_USER_DATA_DIR
+from src.config import wb_profile_dir
 
 logger = logging.getLogger(__name__)
 
@@ -84,26 +83,31 @@ class ScedulerService:
             self._is_running = False
 
     async def _collect_wb(self, collect_date):
-        token = await get_wb_api_token()
-        if not token:
-            logger.info("WB API token is not configured, skipping WB collection")
+        accounts = await get_wb_accounts()
+        if not accounts:
+            logger.info("no WB accounts configured, skipping WB collection")
             return
-        if not profile_exists(WB_USER_DATA_DIR):
-            task = Task(name="wb", status="ERROR: WB seller login required")
+        for account in accounts:
+            task_name = f"wb:{account.name}"
+            if not account.token:
+                task = Task(name=task_name, status="ERROR: WB API token is not configured")
+                await save_task(task)
+                continue
+            if not profile_exists(wb_profile_dir(account.name)):
+                task = Task(name=task_name, status="ERROR: WB seller login required")
+                await save_task(task)
+                logger.warning("WB seller profile is missing for %s", account.name)
+                continue
+            task = Task(name=task_name, status="getting prices")
             await save_task(task)
-            logger.warning("WB seller profile is missing, skipping WB collection")
-            return
-
-        task = Task(name="wb", status="getting prices")
-        await save_task(task)
-        try:
-            await self.wb_service.collect_prices(collect_date)
-            task.status = "generating report"
-            await save_task(task)
-            await self.wb_service.prepare_excel_report(collect_date)
-            task.status = "FINISHED"
-            await save_task(task)
-        except Exception as e:
-            logger.exception(e)
-            task.status = "ERROR: " + str(e)
-            await save_task(task)
+            try:
+                await self.wb_service.collect_prices(collect_date, account.name)
+                task.status = "generating report"
+                await save_task(task)
+                await self.wb_service.prepare_excel_report(collect_date, account=account.name)
+                task.status = "FINISHED"
+                await save_task(task)
+            except Exception as e:
+                logger.exception(e)
+                task.status = "ERROR: " + str(e)
+                await save_task(task)

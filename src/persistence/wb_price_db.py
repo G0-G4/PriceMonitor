@@ -68,6 +68,7 @@ async def get_wb_price_change(
     limit: int = 50,
     offset: int = 0,
     vendor_code: str | None = None,
+    account: str | None = None,
 ) -> list[WbPriceChange]:
     Yesterday = aliased(WbPrice)
     query = select(WbPrice, Yesterday).select_from(WbPrice).outerjoin(
@@ -83,7 +84,9 @@ async def get_wb_price_change(
     )
     if vendor_code:
         query = query.where(WbPrice.vendor_code == vendor_code)
-    query = query.order_by(WbPrice.vendor_code, WbPrice.size_id).limit(limit).offset(offset)
+    if account:
+        query = query.where(WbPrice.account == account)
+    query = query.order_by(WbPrice.account, WbPrice.vendor_code, WbPrice.size_id).limit(limit).offset(offset)
 
     result = await session.execute(query)
     rows = result.all()
@@ -110,20 +113,23 @@ async def count_wb_price_change(
     session,
     target_date: date,
     vendor_code: str | None = None,
+    account: str | None = None,
 ) -> int:
     query = select(func.count()).select_from(WbPrice).where(WbPrice.date == target_date)
     if vendor_code:
         query = query.where(WbPrice.vendor_code == vendor_code)
+    if account:
+        query = query.where(WbPrice.account == account)
     result = await session.execute(query)
     return result.scalar_one()
 
 
-async def get_previous_wb_day(today: date):
+async def get_previous_wb_day(today: date, account: str | None = None):
     async with session_maker() as session:
+        query = select(WbPrice.date).where(WbPrice.date < today)
+        if account:
+            query = query.where(WbPrice.account == account)
         result = await session.execute(
-            select(WbPrice.date)
-            .where(WbPrice.date < today)
-            .order_by(WbPrice.date.desc())
-            .limit(1)
+            query.order_by(WbPrice.date.desc()).limit(1)
         )
         return result.scalar_one_or_none()

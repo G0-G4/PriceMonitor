@@ -9,14 +9,14 @@ import os
 import asyncio
 
 from src.api.ozon_api import OzonApi
-from src.api.wb_api import WbApi
-from src.config import LOG_LEVEL, WB_USER_DATA_DIR
+from src.config import LOG_LEVEL, wb_profile_dir
 from src.models.database import session_maker
 from src.persistence.ozon_price_db import get_previous_day
 from src.persistence.wb_price_db import get_previous_wb_day
 from src.persistence.parameters_db import add_scheduled_time, delete_scheduled_time, get_company_ids, add_company_ids, \
     delete_company_id, \
-    get_report_path, get_scheduled_times, save_report_path, get_wb_api_token, save_wb_api_token, mask_token
+    get_report_path, get_scheduled_times, save_report_path, get_wb_accounts, add_wb_account, delete_wb_account, \
+    mask_token, normalize_wb_account
 from src.persistence.task_db import count_tasks, get_tasks
 from src.browser_request_sender import BrowserRequestSender, profile_exists, ReLoginRequiredError
 import uvicorn
@@ -77,13 +77,11 @@ templates = Jinja2Templates(directory="templates")
 
 sender = None
 api = None
-wb_sender = None
-wb_api = None
 wb_service = None
 scheduler_service = None
 login_lock = asyncio.Lock()
 login_in_progress = {"value": False}
-wb_login_in_progress = {"value": False}
+wb_login_in_progress = {"value": False, "account": None}
 
 
 async def get_service():
@@ -96,15 +94,9 @@ async def get_service():
 
 
 async def get_wb_service():
-    global wb_sender, wb_api, wb_service
+    global wb_service
     if wb_service is None:
-        wb_sender = BrowserRequestSender(
-            "https://seller.wildberries.ru/discount-and-prices",
-            user_data_dir=WB_USER_DATA_DIR,
-            login_url="https://seller.wildberries.ru/",
-        )
-        wb_api = WbApi(wb_sender)
-        wb_service = WbService(wb_api)
+        wb_service = WbService()
     return wb_service
 
 
@@ -122,17 +114,26 @@ async def refresh_scheduler_services():
     scheduler_service.wb_service = await get_wb_service()
 
 
+async def _wb_accounts_view() -> list[dict]:
+    return [
+        {
+            "name": acc.name,
+            "token_masked": mask_token(acc.token),
+            "authenticated": profile_exists(wb_profile_dir(acc.name)),
+        }
+        for acc in await get_wb_accounts()
+    ]
+
+
 async def _wb_auth_context(request: Request, extra: dict | None = None) -> dict:
-    token = await get_wb_api_token()
     context = {
         "request": request,
-        "wb_authenticated": profile_exists(WB_USER_DATA_DIR),
+        "wb_accounts": await _wb_accounts_view(),
         "wb_login_in_progress": wb_login_in_progress.get("value"),
+        "wb_login_account": wb_login_in_progress.get("account"),
         "wb_just_logged_in": False,
         "wb_error": None,
-        "wb_token_masked": mask_token(token),
-        "wb_token_saved": False,
-        "wb_token_error": None,
+        "wb_account_error": None,
     }
     if extra:
         context.update(extra)
@@ -158,6 +159,8 @@ async def get_prices(
     target_date: str = Query(None),
     marketplace: str = Query("ozon"),
 ):
+    company_id = company_id.strip() if company_id else None
+    offer_id = offer_id.strip() if offer_id else None
     try:
         target_date_obj = date.fromisoformat(target_date) if target_date else date.today()
     except ValueError:
@@ -165,13 +168,14 @@ async def get_prices(
 
     if marketplace == "wb":
         service = await get_wb_service()
-        previous_date = (await get_previous_wb_day(target_date_obj)) or (target_date_obj - timedelta(days=1))
+        previous_date = (await get_previous_wb_day(target_date_obj, company_id)) or (target_date_obj - timedelta(days=1))
         price_change_response = await service.get_price_change(
             target_date=target_date_obj,
             previous_date=previous_date,
             limit=ITEMS_PER_PAGE,
             offset=(page - 1) * ITEMS_PER_PAGE,
             vendor_code=offer_id,
+            account=company_id,
         )
         template_name = "partials/wb_price.html"
     else:
@@ -321,17 +325,26 @@ async def login(request: Request):
 @app.get("/login/wb/status", response_class=HTMLResponse)
 async def wb_login_status(request: Request):
     just_done = None
+    account = wb_login_in_progress.get("account")
     if wb_login_in_progress.get("result") is not None and not wb_login_in_progress.get("value"):
         just_done = wb_login_in_progress["result"]
         wb_login_in_progress["result"] = None
     return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
         "wb_just_logged_in": just_done is True,
+        "wb_login_account": account,
         "wb_error": None if just_done is None else (None if just_done else "Login failed or window closed before completing WB login"),
     }))
 
 
 @app.post("/login/wb", response_class=HTMLResponse)
-async def wb_login(request: Request):
+async def wb_login(request: Request, account: str = Form(...)):
+    try:
+        account = normalize_wb_account(account)
+    except ValueError as e:
+        return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
+            "wb_error": str(e),
+        }))
+
     if wb_login_in_progress.get("value"):
         return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
             "wb_login_in_progress": True,
@@ -340,20 +353,12 @@ async def wb_login(request: Request):
     async with login_lock:
         wb_login_in_progress["value"] = True
         wb_login_in_progress["result"] = None
-        global wb_sender, wb_service, wb_api
-        if wb_sender is not None:
-            try:
-                await wb_sender.close()
-            except Exception:
-                logger.exception("failed to close existing WB browser sender before login")
-            wb_sender = None
-            wb_api = None
-            wb_service = None
+        wb_login_in_progress["account"] = account
 
         async def _run_wb_login():
             login_sender = BrowserRequestSender(
                 "https://seller.wildberries.ru/",
-                user_data_dir=WB_USER_DATA_DIR,
+                user_data_dir=wb_profile_dir(account),
                 login_url="https://seller.wildberries.ru/",
             )
             try:
@@ -375,20 +380,30 @@ async def wb_login(request: Request):
 
     return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
         "wb_login_in_progress": True,
+        "wb_login_account": account,
     }))
 
 
-@app.post("/wb_token", response_class=HTMLResponse)
-async def update_wb_token(request: Request, wb_api_token: str = Form(...)):
-    if not wb_api_token.strip():
-        return templates.TemplateResponse("partials/wb_token.html", await _wb_auth_context(request, {
-            "wb_token_error": "Token is empty",
+@app.post("/wb_accounts", response_class=HTMLResponse)
+async def add_wb_account_endpoint(request: Request, account: str = Form(...), wb_api_token: str = Form(...)):
+    try:
+        await add_wb_account(account, wb_api_token)
+        return templates.TemplateResponse("partials/wb_accounts.html", await _wb_auth_context(request))
+    except Exception as e:
+        return templates.TemplateResponse("partials/wb_accounts.html", await _wb_auth_context(request, {
+            "wb_account_error": str(e),
         }))
-    await save_wb_api_token(wb_api_token)
-    return templates.TemplateResponse("partials/wb_token.html", await _wb_auth_context(request, {
-        "wb_token_saved": True,
-        "wb_token_masked": mask_token(wb_api_token.strip()),
-    }))
+
+
+@app.delete("/wb_accounts/{account}", response_class=HTMLResponse)
+async def remove_wb_account(request: Request, account: str):
+    try:
+        await delete_wb_account(account)
+        return templates.TemplateResponse("partials/wb_accounts.html", await _wb_auth_context(request))
+    except Exception as e:
+        return templates.TemplateResponse("partials/wb_accounts.html", await _wb_auth_context(request, {
+            "wb_account_error": str(e),
+        }))
 
 
 @app.post("/scheduled_times", response_class=HTMLResponse)

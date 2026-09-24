@@ -1,6 +1,7 @@
 <thead>
   <tr>
     <th>Date</th>
+    <th>Account</th>
     <th>Vendor code</th>
     <th>Name</th>
     <th>Size</th>
@@ -16,6 +17,7 @@
 {% for price in prices %}
 <tr>
   <td>{{ price.date }}</td>
+  <td>{{ price.account }}</td>
   <td>{{ price.vendor_code }}</td>
   <td>{{ price.name }}</td>
   <td>{{ price.tech_size_name }}</td>
@@ -44,6 +46,7 @@
         <li class="pure-menu-item">
           <a class="pure-button pure-menu-link"
              hx-get="/prices?page={{ current_page - 1 }}&marketplace=wb
+             {% if company_id %}&company_id={{ company_id }}{% endif %}
              {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
              &target_date={{ target_date }}"
              hx-target="table"
@@ -57,6 +60,7 @@
         <li class="pure-menu-item">
           <a class="pure-button pure-menu-link"
              hx-get="/prices?page={{ current_page + 1 }}&marketplace=wb
+             {% if company_id %}&company_id={{ company_id }}{% endif %}
              {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
              &target_date={{ target_date }}"
              hx-target="table"

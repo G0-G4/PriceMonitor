@@ -1,0 +1,41 @@
+<tr>
+  <td colspan="4">
+    <form class="pure-form" hx-post="/wb_accounts" hx-target="#wb-account-list">
+      <input type="text" name="account" placeholder="Account name" required>
+      <input type="password" name="wb_api_token" placeholder="API token" required autocomplete="off">
+      <button type="submit" class="pure-button pure-button-primary">Add</button>
+    </form>
+  </td>
+</tr>
+{% for acc in wb_accounts %}
+<tr>
+  <td>{{ acc.name }}</td>
+  <td>{{ acc.token_masked or "—" }}</td>
+  <td>
+    {% if acc.authenticated %}
+      <span style="color: green;">&#10003; Authorized</span>
+    {% else %}
+      <span style="color: #a00;">&#9888; Not authorized</span>
+    {% endif %}
+  </td>
+  <td>
+    <form class="pure-form" style="display: inline;" hx-post="/login/wb" hx-target="#wb-auth-block" hx-swap="outerHTML" hx-disabled-elt="button">
+      <input type="hidden" name="account" value="{{ acc.name }}">
+      <button type="submit" class="pure-button pure-button-primary" {% if wb_login_in_progress %}disabled{% endif %}>
+        {% if acc.authenticated %}Re-login{% else %}Log in{% endif %}
+      </button>
+    </form>
+    <button class="pure-button button-error"
+            hx-delete="/wb_accounts/{{ acc.name }}"
+            hx-target="#wb-account-list"
+            {% if wb_login_in_progress %}disabled{% endif %}>
+      Delete
+    </button>
+  </td>
+</tr>
+{% endfor %}
+{% if wb_account_error %}
+<tr>
+  <td colspan="4" style="color: red;">{{ wb_account_error }}</td>
+</tr>
+{% endif %}

@@ -1,38 +1,32 @@
 <div id="wb-auth-block">
-  <h2>Wildberries Authorization</h2>
-  <div id="wb-token-form" style="margin-bottom: 16px;">
-    {% include "partials/wb_token.html" %}
-  </div>
-  <div id="wb-auth-form">
-    <div style="margin-bottom: 10px;">
-      {% if wb_authenticated %}
-        <span style="color: green;">&#10003; Authorized (WB profile saved)</span>
-      {% elif wb_login_in_progress %}
-        <span style="color: orange;">Login in progress &mdash; complete login in the opened Chrome window, then close it.</span>
-      {% else %}
-        <span style="color: #a00;">&#9888; Not authorized</span>
-      {% endif %}
-      {% if wb_just_logged_in %}
-        <span style="color: green; margin-left: 10px;">&#10003; Login successful</span>
-      {% endif %}
-      {% if wb_error %}
-        <span style="color: red; margin-left: 10px;">{{ wb_error }}</span>
-      {% endif %}
-    </div>
+  <h2>Wildberries Cabinets</h2>
+  <p style="font-size: 12px; color: #666; margin-top: 0;">
+    Each cabinet needs its own API token (Prices and Discounts; Content optional for names) and a separate login.
+    Chrome profiles are stored in <code>browser_profile_wb/&lt;account&gt;</code>.
+  </p>
+  {% if wb_login_in_progress %}
+    <p style="color: orange;">Login in progress for <b>{{ wb_login_account }}</b> &mdash; complete login in the opened Chrome window, then close it.</p>
+  {% endif %}
+  {% if wb_just_logged_in %}
+    <p style="color: green;">&#10003; Login successful{% if wb_login_account %} for {{ wb_login_account }}{% endif %}</p>
+  {% endif %}
+  {% if wb_error %}
+    <p style="color: red;">{{ wb_error }}</p>
+  {% endif %}
 
-    {% if wb_login_in_progress %}
-      <p>Please log in to Wildberries in the opened Chrome window. After completing login, <b>close the Chrome window manually</b> &mdash; the session will be saved automatically.</p>
-    {% else %}
-      <form class="pure-form" hx-post="/login/wb" hx-target="#wb-auth-block" hx-swap="outerHTML" hx-disabled-elt="button">
-        <button type="submit" class="pure-button pure-button-primary">
-          {% if wb_authenticated %}Re-login to Wildberries{% else %}Log in to Wildberries{% endif %}
-        </button>
-      </form>
-      <p style="font-size: 12px; color: #666; margin-top: 6px;">
-        A Chrome window will open at seller.wildberries.ru. Log in, then <b>close the window manually</b> &mdash; the session is saved to a separate browser profile.
-      </p>
-    {% endif %}
-  </div>
+  <table class="pure-table pure-table-bordered" style="margin-top: 10px">
+    <thead>
+      <tr>
+        <th>Account</th>
+        <th>Token</th>
+        <th>Session</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="wb-account-list">
+      {% include "partials/wb_accounts.html" %}
+    </tbody>
+  </table>
 
   {% if wb_login_in_progress %}
     <div hx-get="/login/wb/status" hx-target="#wb-auth-block" hx-trigger="every 3s" hx-swap="outerHTML"></div>
