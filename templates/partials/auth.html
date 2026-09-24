@@ -1,37 +1,37 @@
-<div id="auth-block">
-  <h2>Ozon Authorization</h2>
-  <div id="auth-form">
-    <div style="margin-bottom: 10px;">
-      {% if authenticated %}
-        <span style="color: green;">&#10003; Authorized (profile saved)</span>
-      {% elif login_in_progress %}
-        <span style="color: orange;">Login in progress &mdash; complete login in the opened Chrome window, then close it.</span>
-      {% else %}
-        <span style="color: #a00;">&#9888; Not authorized</span>
-      {% endif %}
-      {% if just_logged_in %}
-        <span style="color: green; margin-left: 10px;">&#10003; Login successful</span>
-      {% endif %}
-      {% if error %}
-        <span style="color: red; margin-left: 10px;">{{ error }}</span>
-      {% endif %}
+<section class="panel" id="auth-block">
+  <div class="panel-head">
+    <div>
+      <h2>Ozon session</h2>
+      <p class="lede">One Chrome profile for all Ozon company IDs.</p>
     </div>
-
-    {% if login_in_progress %}
-      <p>Please log in to Ozon in the opened Chrome window. After completing login, <b>close the Chrome window manually</b> &mdash; the session will be saved automatically.</p>
+    {% if authenticated %}
+      <span class="badge badge-ok">Authorized</span>
+    {% elif login_in_progress %}
+      <span class="badge badge-warn">Login in progress</span>
     {% else %}
-      <form class="pure-form" hx-post="/login" hx-target="#auth-block" hx-swap="outerHTML" hx-disabled-elt="button">
-        <button type="submit" class="pure-button pure-button-primary">
-          {% if authenticated %}Re-login to Ozon{% else %}Log in to Ozon{% endif %}
-        </button>
-      </form>
-      <p style="font-size: 12px; color: #666; margin-top: 6px;">
-        A Chrome window will open. Log in, then <b>close the window manually</b> &mdash; the session is saved to disk.
-      </p>
+      <span class="badge badge-err">Not authorized</span>
     {% endif %}
   </div>
+
+  {% if just_logged_in %}
+    <p class="flash-ok">Login saved.</p>
+  {% endif %}
+  {% if error %}
+    <p class="flash-err">{{ error }}</p>
+  {% endif %}
+
+  {% if login_in_progress %}
+    <p class="hint">Finish login in the Chrome window, then close it. The session is stored on disk.</p>
+  {% else %}
+    <form hx-post="/login" hx-target="#auth-block" hx-swap="outerHTML" hx-disabled-elt="button">
+      <button type="submit" class="btn btn-primary">
+        {% if authenticated %}Re-login to Ozon{% else %}Log in to Ozon{% endif %}
+      </button>
+    </form>
+    <p class="hint">A Chrome window opens at seller.ozon.ru. Close it yourself when you are done.</p>
+  {% endif %}
 
   {% if login_in_progress %}
     <div hx-get="/login/status" hx-target="#auth-block" hx-trigger="every 3s" hx-swap="outerHTML"></div>
   {% endif %}
-</div>
+</section>

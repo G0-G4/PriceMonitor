@@ -28,6 +28,7 @@ executables = [
 [tool.cxfreeze.build_exe]
 include_files = [
     "templates/",
+    "static/",
     "migrations/",
     "config.json",
     ".env"

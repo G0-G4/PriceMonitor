@@ -1,37 +1,44 @@
 {% for task in tasks %}
 <tr>
-  <td>{{ task.task_id }}</td>
+  <td class="muted">{{ task.task_id }}</td>
   <td>{{ task.name }}</td>
-  <td style="max-width: 200px; word-wrap: break-word; white-space: pre-wrap;">{{ task.status }}</td>
-  <td>{{ task.created_at }}</td>
-  <td>{{ task.updated_at }}</td>
+  <td class="name">
+    {% if task.status == 'FINISHED' %}
+      <span class="badge badge-ok">Finished</span>
+    {% elif task.status and task.status[:5] == 'ERROR' %}
+      <span class="badge badge-err">Error</span>
+      <span class="muted">{{ task.status[6:]|trim }}</span>
+    {% else %}
+      <span class="badge badge-warn">{{ task.status }}</span>
+    {% endif %}
+  </td>
+  <td class="muted">{{ task.created_at }}</td>
+  <td class="muted">{{ task.updated_at }}</td>
+</tr>
+{% else %}
+<tr>
+  <td colspan="5" class="empty">No tasks yet.</td>
 </tr>
 {% endfor %}
 
 {% if total_pages > 1 %}
 <tr>
-  <td colspan="5" class="pure-menu pure-menu-horizontal">
-    <ul class="pure-menu-list">
+  <td colspan="5">
+    <div class="pager">
       {% if current_page > 1 %}
-        <li class="pure-menu-item">
-          <a class="pure-button pure-menu-link" 
-             hx-get="/tasks?page={{ current_page - 1 }}"
-             hx-target="tbody"
-             hx-swap="innerHTML">Previous</a>
-        </li>
+        <a class="btn"
+           hx-get="/tasks/list?page={{ current_page - 1 }}"
+           hx-target="tbody"
+           hx-swap="innerHTML">Previous</a>
       {% endif %}
-      <li class="pure-menu-item pure-menu-disabled">
-        <span class="pure-menu-link">Page {{ current_page }} of {{ total_pages }}</span>
-      </li>
+      <span>Page {{ current_page }} of {{ total_pages }}</span>
       {% if current_page < total_pages %}
-        <li class="pure-menu-item">
-          <a class="pure-button pure-menu-link"
-             hx-get="/tasks?page={{ current_page + 1 }}"
-             hx-target="tbody"
-             hx-swap="innerHTML">Next</a>
-        </li>
+        <a class="btn"
+           hx-get="/tasks/list?page={{ current_page + 1 }}"
+           hx-target="tbody"
+           hx-swap="innerHTML">Next</a>
       {% endif %}
-    </ul>
+    </div>
   </td>
 </tr>
 {% endif %}

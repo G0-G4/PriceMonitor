@@ -1,34 +1,48 @@
-<div id="wb-auth-block">
-  <h2>Wildberries Cabinets</h2>
-  <p style="font-size: 12px; color: #666; margin-top: 0;">
-    Each cabinet needs its own API token (Prices and Discounts; Content optional for names) and a separate login.
-    Chrome profiles are stored in <code>browser_profile_wb/&lt;account&gt;</code>.
-  </p>
+<section class="panel" id="wb-auth-block">
+  <div class="panel-head">
+    <div>
+      <h2>Wildberries cabinets</h2>
+      <p class="lede">Each cabinet needs its own API token and Chrome login. Profiles live in <code>browser_profile_wb/&lt;account&gt;</code>.</p>
+    </div>
+  </div>
+
   {% if wb_login_in_progress %}
-    <p style="color: orange;">Login in progress for <b>{{ wb_login_account }}</b> &mdash; complete login in the opened Chrome window, then close it.</p>
+    <p class="status-line"><span class="badge badge-warn">Login in progress for {{ wb_login_account }}</span></p>
+    <p class="hint">Finish login in Chrome, then close the window.</p>
   {% endif %}
   {% if wb_just_logged_in %}
-    <p style="color: green;">&#10003; Login successful{% if wb_login_account %} for {{ wb_login_account }}{% endif %}</p>
+    <p class="flash-ok">Login saved{% if wb_login_account %} for {{ wb_login_account }}{% endif %}.</p>
   {% endif %}
   {% if wb_error %}
-    <p style="color: red;">{{ wb_error }}</p>
+    <p class="flash-err">{{ wb_error }}</p>
   {% endif %}
 
-  <table class="pure-table pure-table-bordered" style="margin-top: 10px">
-    <thead>
-      <tr>
-        <th>Account</th>
-        <th>Token</th>
-        <th>Session</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody id="wb-account-list">
-      {% include "partials/wb_accounts.html" %}
-    </tbody>
-  </table>
+  <form class="inline-add" hx-post="/wb_accounts" hx-target="#wb-account-list">
+    <input type="text" name="account" placeholder="Account name" required>
+    <input type="password" name="wb_api_token" placeholder="API token" required autocomplete="off">
+    <button type="submit" class="btn btn-primary">Add cabinet</button>
+  </form>
+  {% if wb_account_error %}
+    <p class="flash-err">{{ wb_account_error }}</p>
+  {% endif %}
+
+  <div class="table-wrap" style="margin-top: 12px;">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Account</th>
+          <th>Token</th>
+          <th>Session</th>
+          <th class="actions"></th>
+        </tr>
+      </thead>
+      <tbody id="wb-account-list">
+        {% include "partials/wb_accounts.html" %}
+      </tbody>
+    </table>
+  </div>
 
   {% if wb_login_in_progress %}
     <div hx-get="/login/wb/status" hx-target="#wb-auth-block" hx-trigger="every 3s" hx-swap="outerHTML"></div>
   {% endif %}
-</div>
+</section>

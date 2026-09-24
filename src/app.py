@@ -3,6 +3,7 @@ from logging import getLevelNamesMapping
 
 from fastapi import FastAPI, Request, Form, Query
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from datetime import date, timedelta
 import os
@@ -74,6 +75,7 @@ async def lifespan(app: FastAPI):
     yield
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 sender = None
 api = None
@@ -146,6 +148,7 @@ async def get_items(request: Request):
         "request": request,
         "today": today,
         "marketplace": "ozon",
+        "active": "prices",
     })
 
 ITEMS_PER_PAGE = 50
@@ -223,6 +226,7 @@ async def settings(request: Request):
         "report_path": report_path.value if report_path else "",
         "authenticated": profile_exists(),
         "login_in_progress": login_in_progress["value"],
+        "active": "settings",
         **wb_context,
     })
 
@@ -482,7 +486,7 @@ async def show_scheduled_times(request: Request):
 
 @app.get("/tasks", response_class=HTMLResponse)
 async def get_tasks_page(request: Request):
-    return templates.TemplateResponse("task_table.html", {"request": request})
+    return templates.TemplateResponse("task_table.html", {"request": request, "active": "tasks"})
 
 @app.get("/tasks/list", response_class=HTMLResponse)
 async def get_tasks_endpoint(

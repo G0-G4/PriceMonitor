@@ -1,56 +1,57 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Price Monitor Settings</title>
-  <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.6/build/pure-min.css">
-  <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.6/build/grids-responsive-min.css">
-  <script src="https://unpkg.com/htmx.org"></script>
-  <style>
-    .button-error {
-      color: white;
-      background: rgb(202, 60, 60);
-    }
-  </style>
-</head>
-<body>
-  <div class="pure-g" style="padding: 20px">
-    <div class="pure-u-1">
+{% extends "base.html" %}
+{% block title %}Settings · Price Monitor{% endblock %}
+{% block body %}
+  <div class="page-head">
+    <div>
       <h1>Settings</h1>
-      
-      {% include "partials/auth.html" %}
+      <p class="lede">Sessions, cabinets, schedule, and where Excel reports are written.</p>
+    </div>
+  </div>
 
-      {% include "partials/wb_auth.html" %}
+  {% include "partials/auth.html" %}
+  {% include "partials/wb_auth.html" %}
 
-      <h2>Company IDs</h2>
-      <table class="pure-table pure-table-bordered" style="margin-top: 20px">
-        <thead>
-          <tr>
-            <th colspan="2">Company IDs</th>
-          </tr>
-        </thead>
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Ozon company IDs</h2>
+        <p class="lede">Collected one after another under the Ozon session.</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="data">
         <tbody id="company-list">
           {% include "partials/company_ids.html" %}
         </tbody>
       </table>
+    </div>
+  </section>
 
-      <h2>Scheduled Times</h2>
-      <table class="pure-table pure-table-bordered" style="margin-top: 20px">
-        <thead>
-          <tr>
-            <th colspan="2">Scheduled Times (HH:MM)</th>
-          </tr>
-        </thead>
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Schedule</h2>
+        <p class="lede">Local time. One collection at a time; overlapping runs are skipped.</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="data">
         <tbody id="scheduled-times-list">
           {% include "partials/scheduled_times.html" %}
         </tbody>
       </table>
+    </div>
+  </section>
 
-      <h2>Report Path</h2>
-      <div id="report-path-form">
-        {% include "partials/report_path.html" %}
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Report folder</h2>
+        <p class="lede">Excel files are written here after each collection.</p>
       </div>
     </div>
-  </div>
-</body>
-</html>
+    <div id="report-path-form">
+      {% include "partials/report_path.html" %}
+    </div>
+  </section>
+{% endblock %}

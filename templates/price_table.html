@@ -1,43 +1,39 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Price Monitor</title>
-  <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.6/build/pure-min.css">
-  <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.6/build/grids-responsive-min.css">
-  <script src="https://unpkg.com/htmx.org"></script>
-  <style>
-    .bg-red { background: #f8d0d0; }
-    .bg-green { background: #d4f0d4; }
-    .bg-white { background: #fff; }
-  </style>
-</head>
-<body class="pure-g" style="padding: 1em; max-width: 1200px; margin: 0 auto;">
-  <div class="pure-u-1">
-    <form class="pure-form pure-g" hx-get="/prices" hx-target="table" hx-trigger="change, keyup delay:500ms">
-      <div class="pure-u-1 pure-u-md-1-5">
-        <select class="pure-input-1" name="marketplace">
-          <option value="ozon" {% if marketplace != 'wb' %}selected{% endif %}>Ozon</option>
-          <option value="wb" {% if marketplace == 'wb' %}selected{% endif %}>Wildberries</option>
-        </select>
-      </div>
-      <div class="pure-u-1 pure-u-md-1-5">
-        <input class="pure-input-1" type="text" name="company_id" placeholder="Company ID / WB account..." value="{{ company_id if company_id else '' }}">
-      </div>
-      <div class="pure-u-1 pure-u-md-1-5">
-        <input class="pure-input-1" type="text" name="offer_id" placeholder="Offer ID / Vendor code..." value="{{ offer_id if offer_id else '' }}">
-      </div>
-      <div class="pure-u-1 pure-u-md-1-5">
-        <input class="pure-input-1" type="date" name="target_date" value="{{ target_date if target_date else today }}">
-      </div>
-    </form>
-    
-    <table class="pure-table pure-table-bordered pure-table-striped">
-      <caption><h2>Price Changes</h2></caption>
-      <tbody hx-get="/prices" hx-trigger="load" hx-target="table">
-        <!-- Prices will be loaded here via HTMX -->
+{% extends "base.html" %}
+{% block title %}Prices · Price Monitor{% endblock %}
+{% block body %}
+  <div class="page-head">
+    <div>
+      <h1>Price changes</h1>
+      <p class="lede">Compare today’s snapshot with the previous collection for Ozon or Wildberries.</p>
+    </div>
+  </div>
+
+  <form class="toolbar" hx-get="/prices" hx-target="#price-table" hx-trigger="change, keyup delay:500ms">
+    <div class="field">
+      <label for="marketplace">Marketplace</label>
+      <select id="marketplace" name="marketplace">
+        <option value="ozon" {% if marketplace != 'wb' %}selected{% endif %}>Ozon</option>
+        <option value="wb" {% if marketplace == 'wb' %}selected{% endif %}>Wildberries</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="company_id">Company / account</label>
+      <input id="company_id" type="text" name="company_id" placeholder="Ozon company ID or WB account" value="{{ company_id if company_id else '' }}">
+    </div>
+    <div class="field">
+      <label for="offer_id">Offer / vendor code</label>
+      <input id="offer_id" type="text" name="offer_id" placeholder="Offer ID or vendor code" value="{{ offer_id if offer_id else '' }}">
+    </div>
+    <div class="field">
+      <label for="target_date">Date</label>
+      <input id="target_date" type="date" name="target_date" value="{{ target_date if target_date else today }}">
+    </div>
+  </form>
+
+  <div class="table-wrap">
+    <table class="data" id="price-table">
+      <tbody hx-get="/prices?marketplace={{ marketplace or 'ozon' }}" hx-trigger="load" hx-target="#price-table">
       </tbody>
     </table>
   </div>
-</body>
-</html>
+{% endblock %}

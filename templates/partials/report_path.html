@@ -1,12 +1,10 @@
-<form class="pure-form" hx-post="/report_path" hx-target="#report-path-form">
-  <div id="report-path-form">
-    <input type="text" name="report_path" value="{{ report_path or '' }}" placeholder="Enter report path" style="width: 300px">
-    <button type="submit" class="pure-button pure-button-primary">Save Path</button>
-    {% if saved %}
-    <span style="margin-left: 10px; color: green;">✓ Path saved</span>
-    {% endif %}
-    {% if error %}
-    <div style="margin-top: 10px; color: red;">{{ error }}</div>
-    {% endif %}
-  </div>
+<form class="inline-add" hx-post="/report_path" hx-target="#report-path-form">
+  <input type="text" name="report_path" value="{{ report_path or '' }}" placeholder="Folder path">
+  <button type="submit" class="btn btn-primary">Save folder</button>
+  {% if saved %}
+    <span class="flash-ok">Saved</span>
+  {% endif %}
 </form>
+{% if error %}
+  <p class="flash-err">{{ error }}</p>
+{% endif %}
