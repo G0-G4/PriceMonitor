@@ -3,5 +3,6 @@
   "HEADLESS_BROWSER": true,
   "BROWSER_STARTUP_SLEEP_SECONDS": 5,
   "SUSPEND_AFTER_BROWSER_STARTUP": false,
-  "USER_DATA_DIR": "./browser_profile"
+  "USER_DATA_DIR": "./browser_profile",
+  "WB_USER_DATA_DIR": "./browser_profile_wb"
 }

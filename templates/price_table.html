@@ -6,17 +6,28 @@
   <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.6/build/pure-min.css">
   <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.6/build/grids-responsive-min.css">
   <script src="https://unpkg.com/htmx.org"></script>
+  <style>
+    .bg-red { background: #f8d0d0; }
+    .bg-green { background: #d4f0d4; }
+    .bg-white { background: #fff; }
+  </style>
 </head>
 <body class="pure-g" style="padding: 1em; max-width: 1200px; margin: 0 auto;">
   <div class="pure-u-1">
     <form class="pure-form pure-g" hx-get="/prices" hx-target="table" hx-trigger="change, keyup delay:500ms">
-      <div class="pure-u-1 pure-u-md-1-4">
+      <div class="pure-u-1 pure-u-md-1-5">
+        <select class="pure-input-1" name="marketplace">
+          <option value="ozon" {% if marketplace != 'wb' %}selected{% endif %}>Ozon</option>
+          <option value="wb" {% if marketplace == 'wb' %}selected{% endif %}>Wildberries</option>
+        </select>
+      </div>
+      <div class="pure-u-1 pure-u-md-1-5">
         <input class="pure-input-1" type="text" name="company_id" placeholder="Company ID..." value="{{ company_id if company_id else '' }}">
       </div>
-      <div class="pure-u-1 pure-u-md-1-4">
-        <input class="pure-input-1" type="text" name="offer_id" placeholder="Offer ID..." value="{{ offer_id if offer_id else '' }}">
+      <div class="pure-u-1 pure-u-md-1-5">
+        <input class="pure-input-1" type="text" name="offer_id" placeholder="Offer ID / Vendor code..." value="{{ offer_id if offer_id else '' }}">
       </div>
-      <div class="pure-u-1 pure-u-md-1-4">
+      <div class="pure-u-1 pure-u-md-1-5">
         <input class="pure-input-1" type="date" name="target_date" value="{{ target_date if target_date else today }}">
       </div>
     </form>

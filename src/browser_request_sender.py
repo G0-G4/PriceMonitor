@@ -1,5 +1,6 @@
 from playwright.async_api import async_playwright
 import asyncio
+import json
 import logging
 import os
 
@@ -16,19 +17,21 @@ def on_console(msg):
 
 class BrowserRequestSender:
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, user_data_dir: str | None = None, login_url: str | None = None):
         self.page = None
         self.pw = None
         self.context = None
         self.base_url = base_url
+        self.user_data_dir = user_data_dir or USER_DATA_DIR
+        self.login_url = login_url or "https://seller.ozon.ru/"
 
     async def init(self) -> "BrowserRequestSender":
         if self.page is not None:
             return self
-        os.makedirs(USER_DATA_DIR, exist_ok=True)
+        os.makedirs(self.user_data_dir, exist_ok=True)
         self.pw = await async_playwright().start()
         self.context = await self.pw.chromium.launch_persistent_context(
-            user_data_dir=USER_DATA_DIR,
+            user_data_dir=self.user_data_dir,
             channel='chrome',
             headless=HEADLESS_BROWSER,
             args=[
@@ -108,11 +111,60 @@ class BrowserRequestSender:
 
         return response
 
+    async def send_context_request(self, method: str, url: str, payload: dict | None = None, extra_headers: dict | None = None) -> dict:
+        if self.context is None:
+            raise Exception("browser is not initialized")
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        if extra_headers:
+            headers.update(extra_headers)
+        kwargs = {"headers": headers, "timeout": 60_000}
+        if payload is not None:
+            kwargs["data"] = json.dumps(payload)
+
+        if method.upper() == "POST":
+            response = await self.context.request.post(url, **kwargs)
+        elif method.upper() == "GET":
+            response = await self.context.request.get(url, **kwargs)
+        else:
+            raise ValueError(f"unsupported method {method}")
+
+        status = response.status
+        text = await response.text()
+        if status in (401, 403):
+            raise ReLoginRequiredError(text)
+        if status >= 400:
+            raise Exception(f"request failed {status}: {text[:500]}")
+        if not text:
+            return {}
+        return json.loads(text)
+
+    async def get_local_storage(self) -> dict[str, str]:
+        if self.page is None:
+            return {}
+        try:
+            storage = await self.page.evaluate(
+                """() => {
+                    const out = {};
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        out[key] = localStorage.getItem(key);
+                    }
+                    return out;
+                }"""
+            )
+            return storage or {}
+        except Exception:
+            logger.exception("failed to read localStorage")
+            return {}
+
     async def login(self) -> bool:
-        os.makedirs(USER_DATA_DIR, exist_ok=True)
+        os.makedirs(self.user_data_dir, exist_ok=True)
         self.pw = await async_playwright().start()
         self.context = await self.pw.chromium.launch_persistent_context(
-            user_data_dir=USER_DATA_DIR,
+            user_data_dir=self.user_data_dir,
             channel='chrome',
             headless=False,
             args=[
@@ -130,7 +182,7 @@ class BrowserRequestSender:
         page.on("close", on_close)
 
         try:
-            await page.goto("https://seller.ozon.ru/")
+            await page.goto(self.login_url)
         except Exception:
             logger.debug("initial goto failed, waiting for user login", exc_info=True)
 
@@ -164,10 +216,11 @@ class BrowserRequestSender:
         return not timed_out
 
 
-def profile_exists() -> bool:
-    if not USER_DATA_DIR or not os.path.isdir(USER_DATA_DIR):
+def profile_exists(user_data_dir: str | None = None) -> bool:
+    directory = user_data_dir or USER_DATA_DIR
+    if not directory or not os.path.isdir(directory):
         return False
-    return os.path.isdir(os.path.join(USER_DATA_DIR, "Default")) or os.path.isfile(os.path.join(USER_DATA_DIR, "Local State"))
+    return os.path.isdir(os.path.join(directory, "Default")) or os.path.isfile(os.path.join(directory, "Local State"))
 
 
 class ReLoginRequiredError(Exception):

@@ -9,12 +9,14 @@ import os
 import asyncio
 
 from src.api.ozon_api import OzonApi
-from src.config import LOG_LEVEL
+from src.api.wb_api import WbApi
+from src.config import LOG_LEVEL, WB_USER_DATA_DIR
 from src.models.database import session_maker
 from src.persistence.ozon_price_db import get_previous_day
+from src.persistence.wb_price_db import get_previous_wb_day
 from src.persistence.parameters_db import add_scheduled_time, delete_scheduled_time, get_company_ids, add_company_ids, \
     delete_company_id, \
-    get_report_path, get_scheduled_times, save_report_path
+    get_report_path, get_scheduled_times, save_report_path, get_wb_api_token, save_wb_api_token, mask_token
 from src.persistence.task_db import count_tasks, get_tasks
 from src.browser_request_sender import BrowserRequestSender, profile_exists, ReLoginRequiredError
 import uvicorn
@@ -23,6 +25,7 @@ import sys
 
 from src.service.ozon_service import OzonService
 from src.service.scheduler_service import ScedulerService
+from src.service.wb_service import WbService
 
 log_level = getLevelNamesMapping()[LOG_LEVEL]
 
@@ -62,7 +65,7 @@ logging.getLogger('aiosqlite').setLevel(logging.WARNING)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("VERSION 1.2.0")
+    logger.info("VERSION 1.3.0")
     from src.models.database import setup_migrations
     await setup_migrations()
     
@@ -74,9 +77,13 @@ templates = Jinja2Templates(directory="templates")
 
 sender = None
 api = None
+wb_sender = None
+wb_api = None
+wb_service = None
 scheduler_service = None
 login_lock = asyncio.Lock()
 login_in_progress = {"value": False}
+wb_login_in_progress = {"value": False}
 
 
 async def get_service():
@@ -87,18 +94,57 @@ async def get_service():
         service = OzonService(api)
     return service
 
+
+async def get_wb_service():
+    global wb_sender, wb_api, wb_service
+    if wb_service is None:
+        wb_sender = BrowserRequestSender(
+            "https://seller.wildberries.ru/discount-and-prices",
+            user_data_dir=WB_USER_DATA_DIR,
+            login_url="https://seller.wildberries.ru/",
+        )
+        wb_api = WbApi(wb_sender)
+        wb_service = WbService(wb_api)
+    return wb_service
+
+
 async def get_scheduler_service():
     global scheduler_service
     if scheduler_service is None:
-        scheduler_service = ScedulerService(await get_service())
+        scheduler_service = ScedulerService(await get_service(), await get_wb_service())
     return scheduler_service
+
+
+async def refresh_scheduler_services():
+    if scheduler_service is None:
+        return
+    scheduler_service.ozon_service = await get_service()
+    scheduler_service.wb_service = await get_wb_service()
+
+
+async def _wb_auth_context(request: Request, extra: dict | None = None) -> dict:
+    token = await get_wb_api_token()
+    context = {
+        "request": request,
+        "wb_authenticated": profile_exists(WB_USER_DATA_DIR),
+        "wb_login_in_progress": wb_login_in_progress.get("value"),
+        "wb_just_logged_in": False,
+        "wb_error": None,
+        "wb_token_masked": mask_token(token),
+        "wb_token_saved": False,
+        "wb_token_error": None,
+    }
+    if extra:
+        context.update(extra)
+    return context
 
 @app.get("/", response_class=HTMLResponse)
 async def get_items(request: Request):
     today = date.today().isoformat()
     return templates.TemplateResponse("price_table.html", {
         "request": request,
-        "today": today
+        "today": today,
+        "marketplace": "ozon",
     })
 
 ITEMS_PER_PAGE = 50
@@ -109,30 +155,43 @@ async def get_prices(
     page: int = Query(1, ge=1),
     company_id: str = Query(None),
     offer_id: str = Query(None),
-    target_date: str = Query(None)
+    target_date: str = Query(None),
+    marketplace: str = Query("ozon"),
 ):
-    service = await get_service()
-    
     try:
         target_date_obj = date.fromisoformat(target_date) if target_date else date.today()
     except ValueError:
         target_date_obj = date.today()
 
-    previous_date = (await get_previous_day(target_date_obj)) or (target_date_obj - timedelta(days=1))
-    price_change_response = await service.get_price_change(
-        target_date=target_date_obj,
-        previous_date=previous_date,
-        limit=ITEMS_PER_PAGE,
-        offset=(page - 1) * ITEMS_PER_PAGE,
-        company_id=company_id,
-        offer_id=offer_id
-    )
+    if marketplace == "wb":
+        service = await get_wb_service()
+        previous_date = (await get_previous_wb_day(target_date_obj)) or (target_date_obj - timedelta(days=1))
+        price_change_response = await service.get_price_change(
+            target_date=target_date_obj,
+            previous_date=previous_date,
+            limit=ITEMS_PER_PAGE,
+            offset=(page - 1) * ITEMS_PER_PAGE,
+            vendor_code=offer_id,
+        )
+        template_name = "partials/wb_price.html"
+    else:
+        service = await get_service()
+        previous_date = (await get_previous_day(target_date_obj)) or (target_date_obj - timedelta(days=1))
+        price_change_response = await service.get_price_change(
+            target_date=target_date_obj,
+            previous_date=previous_date,
+            limit=ITEMS_PER_PAGE,
+            offset=(page - 1) * ITEMS_PER_PAGE,
+            company_id=company_id,
+            offer_id=offer_id
+        )
+        template_name = "partials/price.html"
 
     total_count = price_change_response.total
     total_pages = (total_count + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
 
     return templates.TemplateResponse(
-        "partials/price.html",
+        template_name,
         {
             "request": request,
             "prices": price_change_response.price_changes,
@@ -140,6 +199,7 @@ async def get_prices(
             "total_pages": total_pages,
             "company_id": company_id,
             "offer_id": offer_id,
+            "marketplace": marketplace,
             "target_date": target_date_obj.isoformat(),
             "previous_date": previous_date.strftime("%Y-%m-%d"),
             "format_percentage": lambda value: f"{value:.4f}"
@@ -151,6 +211,7 @@ async def settings(request: Request):
     company_ids = await get_company_ids()
     scheduled_times = await get_scheduled_times()
     report_path = await get_report_path()
+    wb_context = await _wb_auth_context(request)
     return templates.TemplateResponse("settings.html", {
         "request": request,
         "company_ids": company_ids,
@@ -158,6 +219,7 @@ async def settings(request: Request):
         "report_path": report_path.value if report_path else "",
         "authenticated": profile_exists(),
         "login_in_progress": login_in_progress["value"],
+        **wb_context,
     })
 
 @app.post("/company_ids", response_class=HTMLResponse)
@@ -242,6 +304,10 @@ async def login(request: Request):
                 login_in_progress["result"] = False
             finally:
                 login_in_progress["value"] = False
+                try:
+                    await refresh_scheduler_services()
+                except Exception:
+                    logger.exception("failed to refresh scheduler services after Ozon login")
 
         asyncio.create_task(_run_login())
 
@@ -250,6 +316,80 @@ async def login(request: Request):
         "authenticated": profile_exists(),
         "login_in_progress": True,
     })
+
+
+@app.get("/login/wb/status", response_class=HTMLResponse)
+async def wb_login_status(request: Request):
+    just_done = None
+    if wb_login_in_progress.get("result") is not None and not wb_login_in_progress.get("value"):
+        just_done = wb_login_in_progress["result"]
+        wb_login_in_progress["result"] = None
+    return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
+        "wb_just_logged_in": just_done is True,
+        "wb_error": None if just_done is None else (None if just_done else "Login failed or window closed before completing WB login"),
+    }))
+
+
+@app.post("/login/wb", response_class=HTMLResponse)
+async def wb_login(request: Request):
+    if wb_login_in_progress.get("value"):
+        return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
+            "wb_login_in_progress": True,
+        }))
+
+    async with login_lock:
+        wb_login_in_progress["value"] = True
+        wb_login_in_progress["result"] = None
+        global wb_sender, wb_service, wb_api
+        if wb_sender is not None:
+            try:
+                await wb_sender.close()
+            except Exception:
+                logger.exception("failed to close existing WB browser sender before login")
+            wb_sender = None
+            wb_api = None
+            wb_service = None
+
+        async def _run_wb_login():
+            login_sender = BrowserRequestSender(
+                "https://seller.wildberries.ru/",
+                user_data_dir=WB_USER_DATA_DIR,
+                login_url="https://seller.wildberries.ru/",
+            )
+            try:
+                success = await asyncio.wait_for(login_sender.login(), timeout=650)
+                wb_login_in_progress["result"] = bool(success)
+            except asyncio.TimeoutError:
+                wb_login_in_progress["result"] = False
+            except Exception:
+                logger.exception("WB login failed")
+                wb_login_in_progress["result"] = False
+            finally:
+                wb_login_in_progress["value"] = False
+                try:
+                    await refresh_scheduler_services()
+                except Exception:
+                    logger.exception("failed to refresh scheduler services after WB login")
+
+        asyncio.create_task(_run_wb_login())
+
+    return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
+        "wb_login_in_progress": True,
+    }))
+
+
+@app.post("/wb_token", response_class=HTMLResponse)
+async def update_wb_token(request: Request, wb_api_token: str = Form(...)):
+    if not wb_api_token.strip():
+        return templates.TemplateResponse("partials/wb_token.html", await _wb_auth_context(request, {
+            "wb_token_error": "Token is empty",
+        }))
+    await save_wb_api_token(wb_api_token)
+    return templates.TemplateResponse("partials/wb_token.html", await _wb_auth_context(request, {
+        "wb_token_saved": True,
+        "wb_token_masked": mask_token(wb_api_token.strip()),
+    }))
+
 
 @app.post("/scheduled_times", response_class=HTMLResponse)
 async def add_scheduled_time_endpoint(request: Request, scheduled_time: str = Form(...)):

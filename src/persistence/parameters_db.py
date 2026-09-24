@@ -118,6 +118,29 @@ async def delete_scheduled_time(scheduled_time: str):
             await session.delete(scheduled_time)
 
 
+WB_API_TOKEN_NAME = "wb_api_token"
+
+
+async def get_wb_api_token() -> str | None:
+    async with session_maker() as session:
+        parameter = await find_parameter_by_name(WB_API_TOKEN_NAME, session)
+        if parameter and parameter.value:
+            return parameter.value.strip()
+        return None
+
+
+async def save_wb_api_token(token: str):
+    await save_parameter(Parameter(name=WB_API_TOKEN_NAME, value=token.strip()))
+
+
+def mask_token(token: str | None) -> str:
+    if not token:
+        return ""
+    if len(token) <= 8:
+        return "••••"
+    return token[:4] + "…" + token[-4:]
+
+
 
 
 async def main():

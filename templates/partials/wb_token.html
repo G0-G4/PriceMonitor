@@ -1,0 +1,14 @@
+<form class="pure-form" hx-post="/wb_token" hx-target="#wb-token-form" hx-swap="innerHTML">
+  <label for="wb_api_token">WB API token (Prices and Discounts; Content optional for names)</label>
+  <input id="wb_api_token" class="pure-input-1" type="password" name="wb_api_token" placeholder="{% if wb_token_masked %}{{ wb_token_masked }}{% else %}Paste API token{% endif %}" autocomplete="off" style="max-width: 480px;">
+  <button type="submit" class="pure-button pure-button-primary">Save token</button>
+  {% if wb_token_saved %}
+    <span style="color: green; margin-left: 8px;">Saved</span>
+  {% endif %}
+  {% if wb_token_error %}
+    <span style="color: red; margin-left: 8px;">{{ wb_token_error }}</span>
+  {% endif %}
+  {% if wb_token_masked and not wb_token_saved %}
+    <div style="font-size: 12px; color: #666; margin-top: 4px;">Current token: {{ wb_token_masked }}</div>
+  {% endif %}
+</form>
