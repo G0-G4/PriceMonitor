@@ -1,0 +1,211 @@
+{
+  "generated_at": "2026-09-28T19:40:00+03:00",
+  "account": "test",
+  "snapshot_date": "2026-09-28",
+  "previous_snapshot_date": null,
+  "note": "Previous collection does not exist yet, so yesterday_* in the UI is empty.",
+  "targets": [
+    {
+      "vendor_code": "Бм_мб_собака_лайм_кн",
+      "tech_size_name": "80",
+      "nm_id": 1420502757,
+      "size_id": 2114075937,
+      "wb_url": "https://www.wildberries.ru/catalog/1420502757/detail.aspx"
+    },
+    {
+      "vendor_code": "Бм_МБ_плюша_песок_кн",
+      "tech_size_name": "98",
+      "nm_id": 1345004564,
+      "size_id": 1998177175,
+      "wb_url": "https://www.wildberries.ru/catalog/1345004564/detail.aspx"
+    }
+  ],
+  "db_rows": [
+    {
+      "account": "test",
+      "nm_id": 1420502757,
+      "vendor_code": "Бм_мб_собака_лайм_кн",
+      "size_id": 2114075937,
+      "tech_size_name": "80",
+      "name": "Куртка бомбер детский",
+      "date": "2026-09-28",
+      "price": 6019.0,
+      "discounted_price": 4454.06,
+      "club_discounted_price": 4231.36,
+      "discount": 26,
+      "club_discount": 5,
+      "wb_discount": 42,
+      "site_price": 2587.0
+    },
+    {
+      "account": "test",
+      "nm_id": 1420502757,
+      "vendor_code": "Бм_мб_собака_лайм_кн",
+      "size_id": 2114075938,
+      "tech_size_name": "86",
+      "name": "Куртка бомбер детский",
+      "date": "2026-09-28",
+      "price": 6019.0,
+      "discounted_price": 4454.06,
+      "club_discounted_price": 4231.36,
+      "discount": 26,
+      "club_discount": 5,
+      "wb_discount": 42,
+      "site_price": 2587.0
+    },
+    {
+      "account": "test",
+      "nm_id": 1345004564,
+      "vendor_code": "Бм_МБ_плюша_песок_кн",
+      "size_id": 1998177174,
+      "tech_size_name": "86",
+      "name": "Бомбер детский",
+      "date": "2026-09-28",
+      "price": 6019.0,
+      "discounted_price": 4273.49,
+      "club_discounted_price": 4059.82,
+      "discount": 29,
+      "club_discount": 5,
+      "wb_discount": null,
+      "site_price": null
+    },
+    {
+      "account": "test",
+      "nm_id": 1345004564,
+      "vendor_code": "Бм_МБ_плюша_песок_кн",
+      "size_id": 1998177175,
+      "tech_size_name": "98",
+      "name": "Бомбер детский",
+      "date": "2026-09-28",
+      "price": 6019.0,
+      "discounted_price": 4273.49,
+      "club_discounted_price": 4059.82,
+      "discount": 29,
+      "club_discount": 5,
+      "wb_discount": null,
+      "site_price": null
+    }
+  ],
+  "ui_mapping": {
+    "seller": "discounted_price  (cabinet sizes[].discountedPrice)",
+    "SPP": "site_price if present, else discounted_price * (1 - wb_discount/100)",
+    "club": "club_discounted_price  (cabinet sizes[].clubDiscountedPrice)",
+    "change": "today_SPP / yesterday_SPP"
+  },
+  "live_official_api": {
+    "url": "https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter",
+    "filterNmID": [1420502757, 1345004564],
+    "goods": [
+      {
+        "nmID": 1420502757,
+        "vendorCode": "Бм_мб_собака_лайм_кн",
+        "currencyIsoCode4217": "RUB",
+        "discount": 26,
+        "clubDiscount": 5,
+        "editableSizePrice": false,
+        "sizes": [
+          {
+            "sizeID": 2114075937,
+            "price": 6019,
+            "discountedPrice": 4454.06,
+            "clubDiscountedPrice": 4231.36,
+            "techSizeName": "80"
+          },
+          {
+            "sizeID": 2114075938,
+            "price": 6019,
+            "discountedPrice": 4454.06,
+            "clubDiscountedPrice": 4231.36,
+            "techSizeName": "86"
+          }
+        ]
+      },
+      {
+        "nmID": 1345004564,
+        "vendorCode": "Бм_МБ_плюша_песок_кн",
+        "currencyIsoCode4217": "RUB",
+        "discount": 29,
+        "clubDiscount": 5,
+        "editableSizePrice": false,
+        "sizes": [
+          {
+            "sizeID": 1998177174,
+            "price": 6019,
+            "discountedPrice": 4273.49,
+            "clubDiscountedPrice": 4059.82,
+            "techSizeName": "86"
+          },
+          {
+            "sizeID": 1998177175,
+            "price": 6019,
+            "discountedPrice": 4273.49,
+            "clubDiscountedPrice": 4059.82,
+            "techSizeName": "98"
+          }
+        ]
+      }
+    ]
+  },
+  "live_storefront_api": {
+    "url": "https://card.wb.ru/cards/v4/detail",
+    "params": {"appType": 1, "curr": "rub", "dest": "1259571083", "spp": 30},
+    "products": [
+      {
+        "id": 1420502757,
+        "name": "Куртка бомбер детский",
+        "brand": "MAKIDS",
+        "supplier": "MAKIDS",
+        "supplierId": 968710,
+        "sizes": [
+          {
+            "optionId": 2114075937,
+            "origName": "80",
+            "name": "80",
+            "price": {
+              "basic": 601900,
+              "product": 258700,
+              "logistics": 0,
+              "return": 0,
+              "cashback": 0,
+              "wallet": 0
+            }
+          },
+          {
+            "optionId": 2114075938,
+            "origName": "86",
+            "name": "86",
+            "price": {
+              "basic": 601900,
+              "product": 258700,
+              "logistics": 0,
+              "return": 0,
+              "cashback": 0,
+              "wallet": 0
+            }
+          }
+        ]
+      },
+      {
+        "id": 1345004564,
+        "name": "Бомбер детский",
+        "brand": "MAKIDS",
+        "supplier": "MAKIDS",
+        "supplierId": 968710,
+        "sizes": [
+          {
+            "optionId": 1998177174,
+            "origName": "86",
+            "name": "86",
+            "price": null
+          },
+          {
+            "optionId": 1998177175,
+            "origName": "98",
+            "name": "98",
+            "price": null
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -164,6 +164,9 @@ async def get_prices(
 ):
     company_id = company_id.strip() if company_id else None
     offer_id = offer_id.strip() if offer_id else None
+    marketplace = (marketplace or "ozon").strip().lower()
+    if marketplace not in ("ozon", "wb"):
+        marketplace = "ozon"
     try:
         target_date_obj = date.fromisoformat(target_date) if target_date else date.today()
     except ValueError:

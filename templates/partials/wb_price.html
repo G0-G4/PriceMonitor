@@ -54,20 +54,16 @@
     <div class="pager">
       {% if current_page > 1 %}
         <a class="btn"
-           hx-get="/prices?page={{ current_page - 1 }}&marketplace=wb
-           {% if company_id %}&company_id={{ company_id }}{% endif %}
-           {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
-           &target_date={{ target_date }}"
+           hx-get="/prices?page={{ current_page - 1 }}"
+           hx-include=".toolbar"
            hx-target="#price-table"
            hx-swap="innerHTML">Previous</a>
       {% endif %}
       <span>Page {{ current_page }} of {{ total_pages }}</span>
       {% if current_page < total_pages %}
         <a class="btn"
-           hx-get="/prices?page={{ current_page + 1 }}&marketplace=wb
-           {% if company_id %}&company_id={{ company_id }}{% endif %}
-           {% if offer_id %}&offer_id={{ offer_id }}{% endif %}
-           &target_date={{ target_date }}"
+           hx-get="/prices?page={{ current_page + 1 }}"
+           hx-include=".toolbar"
            hx-target="#price-table"
            hx-swap="innerHTML">Next</a>
       {% endif %}
