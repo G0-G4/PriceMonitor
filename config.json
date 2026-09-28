@@ -4,5 +4,6 @@
   "BROWSER_STARTUP_SLEEP_SECONDS": 5,
   "SUSPEND_AFTER_BROWSER_STARTUP": false,
   "USER_DATA_DIR": "./browser_profile",
-  "WB_USER_DATA_DIR": "./browser_profile_wb"
+  "WB_WALLET_REFRESH_MINUTES": 60,
+  "WB_WALLET_LEVEL": "anonymous"
 }

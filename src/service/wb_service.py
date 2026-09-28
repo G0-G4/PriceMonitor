@@ -5,8 +5,6 @@ import os
 import pandas as pd
 
 from src.api.wb_api import WbApi
-from src.browser_request_sender import BrowserRequestSender, profile_exists
-from src.config import wb_profile_dir
 from src.dto.wb_price_dto import WbPriceChangeResponse
 from src.models.database import session_maker
 from src.models.wb_price import WbPrice
@@ -21,43 +19,33 @@ from src.persistence.wb_price_db import (
 logger = logging.getLogger(__name__)
 
 
+def _wb_discount(discounted_price: float | None, site_price: float | None) -> int | None:
+    # SPP in percent, derived from the storefront price
+    if not discounted_price or site_price is None:
+        return None
+    return round((1 - site_price / discounted_price) * 100)
+
+
 class WbService:
-    def _api_for_account(self, account: str) -> WbApi:
-        sender = BrowserRequestSender(
-            "https://seller.wildberries.ru/discount-and-prices",
-            user_data_dir=wb_profile_dir(account),
-            login_url="https://seller.wildberries.ru/",
-        )
-        return WbApi(sender)
+    def __init__(self):
+        self.api = WbApi()
 
     async def collect_prices(self, today: date, account: str):
         token = await get_wb_api_token(account)
         if not token:
             raise Exception(f"WB API token is not configured for {account}")
-        if not profile_exists(wb_profile_dir(account)):
-            raise Exception(f"WB seller login required for {account}")
+        goods = await self.api.get_prices(token)
+        names = await self.api.get_card_names(token)
+        site_prices = await self.api.get_site_prices([item.nmID for item in goods])
 
-        api = self._api_for_account(account)
-        goods = await api.get_prices(token)
-        names = await api.get_card_names(token)
-
-        await api.open_browser()
-        try:
-            discounts = await api.get_discount_on_site()
-        finally:
-            await api.close_browser()
-
-        discount_by_nm = {}
-        for item in discounts:
-            nm_id = item.resolved_nm_id()
-            if nm_id is None:
-                continue
-            discount_by_nm[nm_id] = item.discountOnSite if item.discountOnSite is not None else 0
         prices: list[WbPrice] = []
         for item in goods:
-            wb_discount = discount_by_nm.get(item.nmID, 0) if item.nmID is not None else 0
             name = names.get(item.nmID) or item.vendorCode
+            item_site_prices = site_prices.get(item.nmID, {})
             for size in item.sizes or []:
+                site_price = item_site_prices.get(size.sizeID)
+                if site_price is None and len(item.sizes) == 1 and len(item_site_prices) == 1:
+                    site_price = next(iter(item_site_prices.values()))
                 prices.append(WbPrice(
                     account=account,
                     nm_id=item.nmID,
@@ -71,8 +59,18 @@ class WbService:
                     club_discounted_price=size.clubDiscountedPrice,
                     discount=item.discount or 0,
                     club_discount=item.clubDiscount or 0,
-                    wb_discount=wb_discount,
+                    wb_discount=_wb_discount(size.discountedPrice, site_price),
+                    site_price=site_price,
                 ))
+        # TEMP: debug output of the rows that go to the DB, remove once WB collection is verified
+        for price in prices:
+            logger.info(
+                "TEMP WB row account=%s nm_id=%s vendor_code=%s size=%s name=%s price=%s discounted=%s "
+                "club_discounted=%s discount=%s club_discount=%s wb_discount=%s site_price=%s",
+                price.account, price.nm_id, price.vendor_code, price.tech_size_name, price.name,
+                price.price, price.discounted_price, price.club_discounted_price,
+                price.discount, price.club_discount, price.wb_discount, price.site_price,
+            )
         batch_size = 40
         for i in range(0, len(prices), batch_size):
             await save_wb_prices(prices[i:i + batch_size])
@@ -146,10 +144,10 @@ class WbService:
                     "tech_size_name",
                     "yesterday_seller_price",
                     "yesterday_spp",
-                    "yesterday_club",
+                    "yesterday_wallet",
                     "today_seller_price",
                     "today_spp",
-                    "today_club",
+                    "today_wallet",
                 ]
                 df = df[column_order]
                 df = df.rename(columns={
@@ -159,10 +157,10 @@ class WbService:
                     "tech_size_name": "size",
                     "today_seller_price": "Цена Продажи " + report_date,
                     "today_spp": "СПП " + report_date,
-                    "today_club": "WB Клуб " + report_date,
+                    "today_wallet": "WB Кошелёк " + report_date,
                     "yesterday_seller_price": "Цена Продажи " + previous_label,
                     "yesterday_spp": "СПП " + previous_label,
-                    "yesterday_club": "WB Клуб " + previous_label,
+                    "yesterday_wallet": "WB Кошелёк " + previous_label,
                 })
                 df["Изменение Цены %"] = None
 

@@ -9,8 +9,6 @@ from datetime import datetime
 from src.persistence.task_db import save_task
 from src.service.ozon_service import OzonService
 from src.service.wb_service import WbService
-from src.browser_request_sender import profile_exists
-from src.config import wb_profile_dir
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +90,6 @@ class ScedulerService:
             if not account.token:
                 task = Task(name=task_name, status="ERROR: WB API token is not configured")
                 await save_task(task)
-                continue
-            if not profile_exists(wb_profile_dir(account.name)):
-                task = Task(name=task_name, status="ERROR: WB seller login required")
-                await save_task(task)
-                logger.warning("WB seller profile is missing for %s", account.name)
                 continue
             task = Task(name=task_name, status="getting prices")
             await save_task(task)

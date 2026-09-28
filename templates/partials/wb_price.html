@@ -15,10 +15,10 @@
     <th>Size</th>
     <th>{{ previous_date }} seller</th>
     <th>{{ previous_date }} SPP</th>
-    <th>{{ previous_date }} club</th>
+    <th>{{ previous_date }} wallet</th>
     <th>{{ target_date }} seller</th>
     <th>{{ target_date }} SPP</th>
-    <th>{{ target_date }} club</th>
+    <th>{{ target_date }} wallet</th>
     <th>Change</th>
   </tr>
 </thead>
@@ -31,10 +31,10 @@
   <td>{{ price.tech_size_name }}</td>
   <td class="num">{{ money(price.yesterday_seller_price) }}</td>
   <td class="num">{{ money(price.yesterday_spp) }}</td>
-  <td class="num">{{ money(price.yesterday_club) }}</td>
+  <td class="num">{{ money(price.yesterday_wallet) }}</td>
   <td class="num">{{ money(price.today_seller_price) }}</td>
   <td class="num">{{ money(price.today_spp) }}</td>
-  <td class="num">{{ money(price.today_club) }}</td>
+  <td class="num">{{ money(price.today_wallet) }}</td>
   {% if price.yesterday_spp and price.yesterday_spp > 0 and price.today_spp is not none %}
     {% set percentage = price.today_spp / price.yesterday_spp %}
     <td class="num">

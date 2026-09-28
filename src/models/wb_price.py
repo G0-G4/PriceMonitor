@@ -21,3 +21,4 @@ class WbPrice(Base):
     discount = Column(Integer)
     club_discount = Column(Integer)
     wb_discount = Column(Integer)
+    site_price = Column(Float)

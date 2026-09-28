@@ -2,25 +2,11 @@
 <tr>
   <td>{{ acc.name }}</td>
   <td class="muted">{{ acc.token_masked or "—" }}</td>
-  <td>
-    {% if acc.authenticated %}
-      <span class="badge badge-ok">Authorized</span>
-    {% else %}
-      <span class="badge badge-err">Not authorized</span>
-    {% endif %}
-  </td>
   <td class="actions">
     <div class="btn-row" style="justify-content: flex-end;">
-      <form hx-post="/login/wb" hx-target="#wb-auth-block" hx-swap="outerHTML" hx-disabled-elt="button">
-        <input type="hidden" name="account" value="{{ acc.name }}">
-        <button type="submit" class="btn btn-primary" {% if wb_login_in_progress %}disabled{% endif %}>
-          {% if acc.authenticated %}Re-login{% else %}Log in{% endif %}
-        </button>
-      </form>
       <button class="btn btn-danger"
               hx-delete="/wb_accounts/{{ acc.name }}"
-              hx-target="#wb-account-list"
-              {% if wb_login_in_progress %}disabled{% endif %}>
+              hx-target="#wb-account-list">
         Delete
       </button>
     </div>
@@ -28,11 +14,11 @@
 </tr>
 {% else %}
 <tr>
-  <td colspan="4" class="empty">No cabinets yet. Add a name and API token above.</td>
+  <td colspan="3" class="empty">No cabinets yet. Add a name and an API token.</td>
 </tr>
 {% endfor %}
 {% if wb_account_error %}
 <tr>
-  <td colspan="4" class="flash-err">{{ wb_account_error }}</td>
+  <td colspan="3" class="flash-err">{{ wb_account_error }}</td>
 </tr>
 {% endif %}

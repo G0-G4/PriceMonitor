@@ -32,27 +32,6 @@ class WbListGoodsResponse(BaseModel):
     errorText: str | None = None
 
 
-class WbDiscountOnSite(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    vendorCode: str | None = None
-    nmID: int | None = None
-    nmId: int | None = None
-    discountOnSite: int | None = None
-
-    def resolved_nm_id(self) -> int | None:
-        return self.nmID if self.nmID is not None else self.nmId
-
-
-class WbDiscountOnSiteData(BaseModel):
-    listGoods: list[WbDiscountOnSite] = Field(default_factory=list)
-
-
-class WbDiscountOnSiteResponse(BaseModel):
-    data: WbDiscountOnSiteData | None = None
-    error: bool = False
-    errorText: str | None = None
-
-
 class WbPriceChange(BaseModel):
     date: date
     account: str
@@ -62,10 +41,10 @@ class WbPriceChange(BaseModel):
     tech_size_name: str | None
     today_seller_price: float | None
     today_spp: float | None
-    today_club: float | None
+    today_wallet: float | None
     yesterday_seller_price: float | None
     yesterday_spp: float | None
-    yesterday_club: float | None
+    yesterday_wallet: float | None
 
 
 class WbPriceChangeResponse(BaseModel):

@@ -8,15 +8,18 @@ from sqlalchemy.orm import aliased
 from src.dto.wb_price_dto import WbPriceChange
 from src.models.database import session_maker
 from src.models.wb_price import WbPrice
+from src.service.wb_wallet_discount import wallet_price_from_spp
 
 logger = logging.getLogger(__name__)
 
 
-def _buyer_price(discounted_price, wb_discount):
-    if discounted_price is None:
+def _buyer_price(price: WbPrice):
+    if price.site_price is not None:
+        return price.site_price
+    # rows collected before site_price existed only have the cabinet discountOnSite
+    if price.discounted_price is None or price.wb_discount is None:
         return None
-    discount = wb_discount or 0
-    return discounted_price * (1 - discount / 100.0)
+    return price.discounted_price * (1 - price.wb_discount / 100.0)
 
 
 async def save_wb_prices(prices: list[WbPrice]):
@@ -39,6 +42,7 @@ async def save_wb_prices(prices: list[WbPrice]):
             "discount": price.discount,
             "club_discount": price.club_discount,
             "wb_discount": price.wb_discount,
+            "site_price": price.site_price,
         } for price in prices]
 
         stmt = insert(WbPrice).values(values)
@@ -54,6 +58,7 @@ async def save_wb_prices(prices: list[WbPrice]):
                 "discount": stmt.excluded.discount,
                 "club_discount": stmt.excluded.club_discount,
                 "wb_discount": stmt.excluded.wb_discount,
+                "site_price": stmt.excluded.site_price,
             }
         )
         await session.execute(stmt)
@@ -92,6 +97,8 @@ async def get_wb_price_change(
     rows = result.all()
     changes = []
     for today, yesterday in rows:
+        today_spp = _buyer_price(today)
+        yesterday_spp = _buyer_price(yesterday) if yesterday else None
         changes.append(WbPriceChange(
             date=target_date,
             account=today.account,
@@ -100,11 +107,11 @@ async def get_wb_price_change(
             name=today.name,
             tech_size_name=today.tech_size_name,
             today_seller_price=today.discounted_price,
-            today_spp=_buyer_price(today.discounted_price, today.wb_discount),
-            today_club=today.club_discounted_price,
+            today_spp=today_spp,
+            today_wallet=wallet_price_from_spp(today_spp),
             yesterday_seller_price=yesterday.discounted_price if yesterday else None,
-            yesterday_spp=_buyer_price(yesterday.discounted_price, yesterday.wb_discount) if yesterday else None,
-            yesterday_club=yesterday.club_discounted_price if yesterday else None,
+            yesterday_spp=yesterday_spp,
+            yesterday_wallet=wallet_price_from_spp(yesterday_spp),
         ))
     return changes
 

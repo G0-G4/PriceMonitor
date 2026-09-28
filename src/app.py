@@ -10,14 +10,15 @@ import os
 import asyncio
 
 from src.api.ozon_api import OzonApi
-from src.config import LOG_LEVEL, wb_profile_dir
+from src.config import LOG_LEVEL
+from src.service.wb_wallet_discount import refresh_wallet_discounts, run_wallet_discount_loop
 from src.models.database import session_maker
 from src.persistence.ozon_price_db import get_previous_day
 from src.persistence.wb_price_db import get_previous_wb_day
 from src.persistence.parameters_db import add_scheduled_time, delete_scheduled_time, get_company_ids, add_company_ids, \
     delete_company_id, \
     get_report_path, get_scheduled_times, save_report_path, get_wb_accounts, add_wb_account, delete_wb_account, \
-    mask_token, normalize_wb_account
+    mask_token
 from src.persistence.task_db import count_tasks, get_tasks
 from src.browser_request_sender import BrowserRequestSender, profile_exists, ReLoginRequiredError
 import uvicorn
@@ -69,10 +70,18 @@ async def lifespan(app: FastAPI):
     logger.info("VERSION 1.3.0")
     from src.models.database import setup_migrations
     await setup_migrations()
-    
+    try:
+        await refresh_wallet_discounts()
+    except Exception:
+        logger.exception("initial WB wallet discount fetch failed")
+
     scheduler_service = await get_scheduler_service()
     await scheduler_service.restart_scheduler()
-    yield
+    wallet_discount_task = asyncio.create_task(run_wallet_discount_loop())
+    try:
+        yield
+    finally:
+        wallet_discount_task.cancel()
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -83,7 +92,6 @@ wb_service = None
 scheduler_service = None
 login_lock = asyncio.Lock()
 login_in_progress = {"value": False}
-wb_login_in_progress = {"value": False, "account": None}
 
 
 async def get_service():
@@ -121,7 +129,6 @@ async def _wb_accounts_view() -> list[dict]:
         {
             "name": acc.name,
             "token_masked": mask_token(acc.token),
-            "authenticated": profile_exists(wb_profile_dir(acc.name)),
         }
         for acc in await get_wb_accounts()
     ]
@@ -131,10 +138,6 @@ async def _wb_auth_context(request: Request, extra: dict | None = None) -> dict:
     context = {
         "request": request,
         "wb_accounts": await _wb_accounts_view(),
-        "wb_login_in_progress": wb_login_in_progress.get("value"),
-        "wb_login_account": wb_login_in_progress.get("account"),
-        "wb_just_logged_in": False,
-        "wb_error": None,
         "wb_account_error": None,
     }
     if extra:
@@ -327,68 +330,6 @@ async def login(request: Request):
         "authenticated": profile_exists(),
         "login_in_progress": True,
     })
-
-
-@app.get("/login/wb/status", response_class=HTMLResponse)
-async def wb_login_status(request: Request):
-    just_done = None
-    account = wb_login_in_progress.get("account")
-    if wb_login_in_progress.get("result") is not None and not wb_login_in_progress.get("value"):
-        just_done = wb_login_in_progress["result"]
-        wb_login_in_progress["result"] = None
-    return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
-        "wb_just_logged_in": just_done is True,
-        "wb_login_account": account,
-        "wb_error": None if just_done is None else (None if just_done else "Login failed or window closed before completing WB login"),
-    }))
-
-
-@app.post("/login/wb", response_class=HTMLResponse)
-async def wb_login(request: Request, account: str = Form(...)):
-    try:
-        account = normalize_wb_account(account)
-    except ValueError as e:
-        return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
-            "wb_error": str(e),
-        }))
-
-    if wb_login_in_progress.get("value"):
-        return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
-            "wb_login_in_progress": True,
-        }))
-
-    async with login_lock:
-        wb_login_in_progress["value"] = True
-        wb_login_in_progress["result"] = None
-        wb_login_in_progress["account"] = account
-
-        async def _run_wb_login():
-            login_sender = BrowserRequestSender(
-                "https://seller.wildberries.ru/",
-                user_data_dir=wb_profile_dir(account),
-                login_url="https://seller.wildberries.ru/",
-            )
-            try:
-                success = await asyncio.wait_for(login_sender.login(), timeout=650)
-                wb_login_in_progress["result"] = bool(success)
-            except asyncio.TimeoutError:
-                wb_login_in_progress["result"] = False
-            except Exception:
-                logger.exception("WB login failed")
-                wb_login_in_progress["result"] = False
-            finally:
-                wb_login_in_progress["value"] = False
-                try:
-                    await refresh_scheduler_services()
-                except Exception:
-                    logger.exception("failed to refresh scheduler services after WB login")
-
-        asyncio.create_task(_run_wb_login())
-
-    return templates.TemplateResponse("partials/wb_auth.html", await _wb_auth_context(request, {
-        "wb_login_in_progress": True,
-        "wb_login_account": account,
-    }))
 
 
 @app.post("/wb_accounts", response_class=HTMLResponse)

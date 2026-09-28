@@ -2,24 +2,13 @@
   <div class="panel-head">
     <div>
       <h2>Wildberries cabinets</h2>
-      <p class="lede">Each cabinet needs its own API token and Chrome login. Profiles live in <code>browser_profile_wb/&lt;account&gt;</code>.</p>
+      <p class="lede">Prices come from the official WB API (needs a personal or service token), SPP from the public storefront. No browser login is needed.</p>
     </div>
   </div>
 
-  {% if wb_login_in_progress %}
-    <p class="status-line"><span class="badge badge-warn">Login in progress for {{ wb_login_account }}</span></p>
-    <p class="hint">Finish login in Chrome, then close the window.</p>
-  {% endif %}
-  {% if wb_just_logged_in %}
-    <p class="flash-ok">Login saved{% if wb_login_account %} for {{ wb_login_account }}{% endif %}.</p>
-  {% endif %}
-  {% if wb_error %}
-    <p class="flash-err">{{ wb_error }}</p>
-  {% endif %}
-
   <form class="inline-add" hx-post="/wb_accounts" hx-target="#wb-account-list">
     <input type="text" name="account" placeholder="Account name" required>
-    <input type="password" name="wb_api_token" placeholder="API token" required autocomplete="off">
+    <input type="password" name="wb_api_token" placeholder="API token" autocomplete="off" required>
     <button type="submit" class="btn btn-primary">Add cabinet</button>
   </form>
   {% if wb_account_error %}
@@ -32,7 +21,6 @@
         <tr>
           <th>Account</th>
           <th>Token</th>
-          <th>Session</th>
           <th class="actions"></th>
         </tr>
       </thead>
@@ -41,8 +29,4 @@
       </tbody>
     </table>
   </div>
-
-  {% if wb_login_in_progress %}
-    <div hx-get="/login/wb/status" hx-target="#wb-auth-block" hx-trigger="every 3s" hx-swap="outerHTML"></div>
-  {% endif %}
 </section>
