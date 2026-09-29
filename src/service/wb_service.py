@@ -37,6 +37,12 @@ class WbService:
         goods = await self.api.get_prices(token)
         names = await self.api.get_card_names(token)
         site_prices = await self.api.get_site_prices([item.nmID for item in goods])
+        logger.info(
+            "WB storefront matched %s of %s nm_ids for %s",
+            len(site_prices),
+            len(goods),
+            account,
+        )
 
         prices: list[WbPrice] = []
         for item in goods:

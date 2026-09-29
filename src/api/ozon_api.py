@@ -18,7 +18,7 @@ class OzonApi:
             "item_ids": item_ids
         }
         response = await self.request_sender.send_request("POST", url, payload)
-        logger.debug(response)
+        logger.debug("get-common-prices company=%s items=%s", compandy_id, len(item_ids))
         return PriceResponse.model_validate(response)
     async def list_by_filter(self, company_id: str, search:str = "", limit:int = 50, offset: int = 0) -> ItemResponse:
         url = "https://seller.ozon.ru/api/v1/products/list-by-filter"
@@ -46,7 +46,7 @@ class OzonApi:
             "offset": offset
         }
         response = await self.request_sender.send_request("POST", url, payload)
-        logger.debug(response)
+        logger.debug("list-by-filter company=%s offset=%s", company_id, offset)
         return ItemResponse.model_validate(response)
 
     async def open_browser(self):
