@@ -5,7 +5,6 @@ from urllib.parse import urlencode
 
 import aiohttp
 
-from src.config import HEADLESS_BROWSER
 from src.dto.wb_price_dto import WbGoods, WbListGoodsResponse
 
 logger = logging.getLogger(__name__)
@@ -14,10 +13,13 @@ OFFICIAL_PRICES_URL = "https://discounts-prices-api.wildberries.ru/api/v2/list/g
 CONTENT_CARDS_URL = "https://content-api.wildberries.ru/content/v2/get/cards/list"
 # unofficial storefront API: the buyer price with WB discount (SPP), no auth needed
 SITE_CARDS_URL = "https://card.wb.ru/cards/v4/detail"
+# same-origin endpoint the storefront itself calls after the wbaas challenge
+INTERNAL_CARDS_URL = "https://www.wildberries.ru/__internal/u-card/cards/v4/detail"
 # delivery region the storefront prices are taken for, same as wildberries.ru uses for Moscow
 SITE_DEST = "1259571083"
 SITE_BATCH_SIZE = 100
 REQUEST_PAUSE_SECONDS = 0.7
+STOREFRONT_WAIT_SECONDS = 30
 
 
 def _retry_delay(resp: aiohttp.ClientResponse, attempt: int) -> float:
@@ -95,15 +97,20 @@ class WbApi:
         logger.info("loaded %s WB card names", len(names))
         return names
 
-    def _site_cards_url(self, nm_ids: list[int]) -> str:
+    def _internal_cards_url(self, nm_ids: list[int], dest: str) -> str:
+        # nm is joined by raw ';'. urlencode would turn that into %3B and WB returns nothing.
         query = urlencode({
             "appType": 1,
             "curr": "rub",
-            "dest": SITE_DEST,
+            "dest": dest,
             "spp": 30,
+            "hide_vflags": 4294967296,
+            "mtype": 257,
+            "lang": "ru",
+            "ab_testing": "false",
             "nm": ";".join(str(nm_id) for nm_id in nm_ids),
-        })
-        return f"{SITE_CARDS_URL}?{query}"
+        }, safe=";")
+        return f"{INTERNAL_CARDS_URL}?{query}"
 
     def _parse_site_payload(self, payload: dict, prices: dict[int, dict[int, float]]) -> int:
         added = 0
@@ -160,34 +167,112 @@ class WbApi:
                 await asyncio.sleep(REQUEST_PAUSE_SECONDS)
         return prices
 
+    async def _wait_for_storefront(self, page) -> bool:
+        # wbaas answers 498 and only reloads the real site after its script finishes.
+        # The challenge document title is "...", the shop title contains Wildberries.
+        for _ in range(STOREFRONT_WAIT_SECONDS):
+            try:
+                title = await page.title()
+            except Exception:
+                title = ""
+            if "Wildberries" in title or "Вайлдберриз" in title:
+                return True
+            await asyncio.sleep(1)
+        return False
+
+    async def _minimize_window(self, browser) -> None:
+        # Headless Chrome stays on the wbaas challenge. A real window minimized
+        # off-screen still finishes it, without sitting on the desktop.
+        try:
+            cdp = await browser.new_browser_cdp_session()
+            targets = await cdp.send("Target.getTargets")
+            target_id = next(
+                item["targetId"]
+                for item in targets["targetInfos"]
+                if item["type"] == "page"
+            )
+            window = await cdp.send("Browser.getWindowForTarget", {"targetId": target_id})
+            await cdp.send("Browser.setWindowBounds", {
+                "windowId": window["windowId"],
+                "bounds": {"windowState": "minimized"},
+            })
+        except Exception:
+            logger.warning("could not minimize the WB Chrome window", exc_info=True)
+
     async def _get_site_prices_chrome(self, nm_ids: list[int]) -> dict[int, dict[int, float]]:
+        # card.wb.ru stays 403. Prices come from the same-origin __internal/u-card
+        # endpoint after the wbaas challenge, which headless Chrome does not finish.
         from playwright.async_api import async_playwright
 
         prices: dict[int, dict[int, float]] = {}
         pw = await async_playwright().start()
         browser = await pw.chromium.launch(
             channel="chrome",
-            headless=HEADLESS_BROWSER,
-            args=["--disable-blink-features=AutomationControlled"],
+            headless=False,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--window-position=-2400,-2400",
+                "--window-size=900,700",
+                "--start-minimized",
+            ],
         )
         context = await browser.new_context(locale="ru-RU")
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
         page = await context.new_page()
+        await self._minimize_window(browser)
         try:
+            logger.info("opening a minimized Chrome to pass the WB antibot check")
             await page.goto("https://www.wildberries.ru/", wait_until="domcontentloaded", timeout=60_000)
-            await asyncio.sleep(2)
+            if not await self._wait_for_storefront(page):
+                logger.error("WB antibot challenge did not finish, SPP will be empty")
+                return prices
+            session = await page.evaluate(
+                """() => {
+                    let dest = null;
+                    try {
+                        const geo = JSON.parse(localStorage.getItem('geo-data-v1-0') || '{}');
+                        const xinfo = (geo.data && geo.data.xinfo) || '';
+                        const match = String(xinfo).match(/dest=(-?\\d+)/);
+                        if (match) dest = match[1];
+                    } catch (e) {}
+                    const hostVersion = window.__HOST_VERSION__;
+                    return {
+                        deviceid: localStorage.getItem('wbx__sessionID') || '',
+                        dest,
+                        spa: typeof hostVersion === 'string' ? hostVersion : '',
+                    };
+                }"""
+            )
+            dest = session.get("dest") or SITE_DEST
+            deviceid = session.get("deviceid") or ""
+            spa = session.get("spa") or ""
+            logger.info(
+                "WB storefront ready dest=%s spa=%s deviceid=%s",
+                dest,
+                spa or "missing",
+                "yes" if deviceid else "no",
+            )
             for i in range(0, len(nm_ids), SITE_BATCH_SIZE):
                 batch = nm_ids[i:i + SITE_BATCH_SIZE]
-                url = self._site_cards_url(batch)
+                url = self._internal_cards_url(batch, dest)
                 result = await page.evaluate(
-                    """async (url) => {
+                    """async ({url, deviceid, spa}) => {
                         try {
-                            const response = await fetch(url);
+                            const headers = {
+                                accept: '*/*',
+                                'x-requested-with': 'XMLHttpRequest',
+                            };
+                            if (deviceid) headers.deviceid = deviceid;
+                            if (spa) headers['x-spa-version'] = spa;
+                            const response = await fetch(url, {credentials: 'include', headers});
                             return { status: response.status, body: await response.text() };
                         } catch (error) {
                             return { status: 0, body: String(error) };
                         }
                     }""",
-                    url,
+                    {"url": url, "deviceid": deviceid, "spa": spa},
                 )
                 status = result.get("status")
                 body = result.get("body") or ""
