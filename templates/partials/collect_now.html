@@ -1,0 +1,29 @@
+<div id="collect-now" class="collect-now">
+  {% if running %}
+    <button type="button" class="btn btn-primary" disabled>Collecting…</button>
+    <p class="hint">Collection is running.{% if not watch_tasks %} <a href="/tasks">Open tasks</a>.{% endif %}</p>
+    <div hx-get="/collect/status{% if watch_tasks %}?watch=tasks{% endif %}"
+         hx-target="#collect-now"
+         hx-trigger="every 3s"
+         hx-swap="outerHTML"></div>
+  {% else %}
+    <form hx-post="/collect{% if watch_tasks %}?watch=tasks{% endif %}"
+          hx-target="#collect-now"
+          hx-swap="outerHTML"
+          hx-disabled-elt="find button">
+      <button type="submit" class="btn btn-primary">Run now</button>
+    </form>
+    {% if notice == "finished" %}
+      <p class="flash-ok">Collection finished.{% if not watch_tasks %} <a href="/tasks">Open tasks</a>.{% endif %}</p>
+    {% elif notice == "empty" %}
+      <p class="flash-err">Add an Ozon company ID or a Wildberries account first.</p>
+    {% elif notice == "error" %}
+      <p class="flash-err">Could not start collection{% if error %}: {{ error }}{% endif %}.</p>
+    {% elif notice == "busy" %}
+      <p class="flash-err">A collection is already running.</p>
+    {% endif %}
+  {% endif %}
+  {% if watch_tasks and notice in ["started", "finished", "busy"] %}
+    <div hx-get="/tasks/list" hx-trigger="load" hx-target="#task-rows" hx-swap="innerHTML"></div>
+  {% endif %}
+</div>

@@ -31,9 +31,10 @@
     <div class="panel-head">
       <div>
         <h2>Schedule</h2>
-        <p class="lede">Local time. One collection at a time; overlapping runs are skipped.</p>
+        <p class="lede">Local time. Run a collection now, or add times below. One run at a time.</p>
       </div>
     </div>
+    {% include "partials/collect_now.html" %}
     <div class="table-wrap">
       <table class="data">
         <tbody id="scheduled-times-list">

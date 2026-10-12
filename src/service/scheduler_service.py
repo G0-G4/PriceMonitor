@@ -1,11 +1,11 @@
+import asyncio
+import logging
+from datetime import datetime
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from src.models.task import Task
 from src.persistence.parameters_db import get_company_ids, get_scheduled_times, get_wb_accounts
-import logging
-
-from datetime import datetime
-
 from src.persistence.task_db import save_task
 from src.service.ozon_service import OzonService
 from src.service.wb_service import WbService
@@ -19,7 +19,19 @@ class ScedulerService:
         self.ozon_service = ozon_servie
         self.wb_service = wb_service
         self._is_running = False
+        self._manual_finished = False
+        self._current_task = None
         self.task = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._is_running
+
+    def take_manual_finished(self) -> bool:
+        if self._is_running or not self._manual_finished:
+            return False
+        self._manual_finished = False
+        return True
 
     async def get_scheduled_times(self) -> list[str]:
         return await get_scheduled_times()
@@ -27,7 +39,6 @@ class ScedulerService:
     async def restart_scheduler(self):
         schedule = await self.get_scheduled_times()
         self.scheduler.remove_all_jobs()
-        self._is_running = False
         for scheduled_times in schedule:
             hour, minute = map(int, scheduled_times.split(':'))
             self.scheduler.add_job(
@@ -42,12 +53,36 @@ class ScedulerService:
         if schedule and self.scheduler.state == 0:
             self.scheduler.start()
 
+    async def run_now(self) -> str:
+        """Start one collection. Returns started, busy, or empty."""
+        if self._is_running:
+            logger.warning("manual collection skipped, job already running")
+            return "busy"
+        self._is_running = True
+        self._manual_finished = False
+        try:
+            company_ids = await get_company_ids()
+            accounts = await get_wb_accounts()
+            if not company_ids and not accounts:
+                logger.info("manual collection skipped, nothing configured")
+                self._is_running = False
+                return "empty"
+            self._current_task = asyncio.create_task(self._run_collected(manual=True))
+        except Exception:
+            self._is_running = False
+            raise
+        logger.info("manual collection started")
+        return "started"
+
     async def test_job(self):
-        task = None
         if self._is_running:
             logger.warning("job is already running skipping this one")
             return
         self._is_running = True
+        await self._run_collected(manual=False)
+
+    async def _run_collected(self, manual: bool):
+        task = None
         try:
             date = datetime.now().date()
             company_ids = await get_company_ids()
@@ -79,6 +114,8 @@ class ScedulerService:
             logger.exception("scheduled job failed")
         finally:
             self._is_running = False
+            if manual:
+                self._manual_finished = True
 
     async def _collect_wb(self, collect_date):
         accounts = await get_wb_accounts()

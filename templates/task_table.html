@@ -7,6 +7,7 @@
       <p class="lede">Latest collection jobs for Ozon companies and Wildberries cabinets.</p>
     </div>
   </div>
+  {% include "partials/collect_now.html" %}
   <div class="table-wrap">
     <table class="data">
       <thead>
@@ -18,7 +19,7 @@
           <th>Updated</th>
         </tr>
       </thead>
-      <tbody hx-get="/tasks/list" hx-trigger="load">
+      <tbody id="task-rows" hx-get="/tasks/list" hx-trigger="load" hx-swap="innerHTML">
       </tbody>
     </table>
   </div>

@@ -21,6 +21,15 @@
 </tr>
 {% endfor %}
 
+{% if collecting %}
+<tr class="poll-row"
+    hx-get="/tasks/list?page={{ current_page }}"
+    hx-trigger="every 4s"
+    hx-target="closest tbody"
+    hx-swap="innerHTML">
+  <td colspan="5"></td>
+</tr>
+{% endif %}
 {% if total_pages > 1 %}
 <tr>
   <td colspan="5">

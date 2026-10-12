@@ -67,7 +67,7 @@ logging.getLogger('aiosqlite').setLevel(logging.WARNING)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("VERSION 1.3.0")
+    logger.info("VERSION 1.4.0")
     from src.models.database import setup_migrations
     await setup_migrations()
     try:
@@ -219,12 +219,24 @@ async def get_prices(
         }
     )
 
+def _collect_state(scheduler, notice: str | None = None, watch_tasks: bool = False, error: str | None = None):
+    if notice is None and scheduler.take_manual_finished():
+        notice = "finished"
+    return {
+        "running": scheduler.is_running,
+        "notice": notice,
+        "watch_tasks": watch_tasks,
+        "error": error,
+    }
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings(request: Request):
     company_ids = await get_company_ids()
     scheduled_times = await get_scheduled_times()
     report_path = await get_report_path()
     wb_context = await _wb_auth_context(request)
+    scheduler = await get_scheduler_service()
     return templates.TemplateResponse("settings.html", {
         "request": request,
         "company_ids": company_ids,
@@ -233,6 +245,7 @@ async def settings(request: Request):
         "authenticated": profile_exists(),
         "login_in_progress": login_in_progress["value"],
         "active": "settings",
+        **_collect_state(scheduler),
         **wb_context,
     })
 
@@ -420,6 +433,31 @@ async def update_report_path(request: Request, report_path: str = Form(...)):
             "error": f"Error saving path: {str(e)}"
         })
 
+@app.post("/collect", response_class=HTMLResponse)
+async def collect_now(request: Request, watch: str = Query("")):
+    scheduler = await get_scheduler_service()
+    error = None
+    try:
+        notice = await scheduler.run_now()
+    except Exception as e:
+        logger.exception("failed to start collection")
+        notice = "error"
+        error = str(e)
+    return templates.TemplateResponse("partials/collect_now.html", {
+        "request": request,
+        **_collect_state(scheduler, notice, watch == "tasks", error),
+    })
+
+
+@app.get("/collect/status", response_class=HTMLResponse)
+async def collect_status(request: Request, watch: str = Query("")):
+    scheduler = await get_scheduler_service()
+    return templates.TemplateResponse("partials/collect_now.html", {
+        "request": request,
+        **_collect_state(scheduler, watch_tasks=watch == "tasks"),
+    })
+
+
 @app.get("/scheduled_times", response_class=HTMLResponse)
 async def show_scheduled_times(request: Request):
     scheduled_times = await get_scheduled_times()
@@ -430,7 +468,12 @@ async def show_scheduled_times(request: Request):
 
 @app.get("/tasks", response_class=HTMLResponse)
 async def get_tasks_page(request: Request):
-    return templates.TemplateResponse("task_table.html", {"request": request, "active": "tasks"})
+    scheduler = await get_scheduler_service()
+    return templates.TemplateResponse("task_table.html", {
+        "request": request,
+        "active": "tasks",
+        **_collect_state(scheduler, watch_tasks=True),
+    })
 
 @app.get("/tasks/list", response_class=HTMLResponse)
 async def get_tasks_endpoint(
@@ -445,6 +488,7 @@ async def get_tasks_endpoint(
         # Get paginated tasks
         tasks = await get_tasks(session, limit=ITEMS_PER_PAGE, offset=(page - 1) * ITEMS_PER_PAGE)
 
+    scheduler = await get_scheduler_service()
     return templates.TemplateResponse(
         "partials/task.html",
         {
@@ -452,5 +496,6 @@ async def get_tasks_endpoint(
             "tasks": tasks,
             "current_page": page,
             "total_pages": total_pages,
+            "collecting": scheduler.is_running,
         }
     )
