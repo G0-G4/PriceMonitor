@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 from urllib.parse import urlencode
 
 import aiohttp
@@ -20,6 +21,39 @@ SITE_DEST = "1259571083"
 SITE_BATCH_SIZE = 100
 REQUEST_PAUSE_SECONDS = 0.7
 STOREFRONT_WAIT_SECONDS = 30
+
+
+@dataclass(frozen=True)
+class WbSiteOffer:
+    """Buyer-site price and stock for one size. price is None when the size is listed but not for sale."""
+
+    price: float | None
+    stock: int | None
+
+
+def _as_int(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _size_stock(size: dict, size_count: int, total_quantity) -> int | None:
+    # stocks[].qty is the per-warehouse count for this size. A one-size card
+    # also sends totalQuantity, which is the number the site shows and can
+    # disagree with the warehouse rows. Several sizes share one totalQuantity,
+    # so that total is not a per-size stock.
+    stocks = size.get("stocks")
+    qty = None
+    if isinstance(stocks, list) and stocks:
+        qty = sum(_as_int(item.get("qty")) or 0 for item in stocks if isinstance(item, dict))
+    if size_count == 1 and isinstance(total_quantity, int):
+        return total_quantity
+    if qty is not None:
+        return qty
+    if (size.get("price") or {}).get("product") is None:
+        return 0
+    return None
 
 
 def _retry_delay(resp: aiohttp.ClientResponse, attempt: int) -> float:
@@ -112,32 +146,43 @@ class WbApi:
         }, safe=";")
         return f"{INTERNAL_CARDS_URL}?{query}"
 
-    def _parse_site_payload(self, payload: dict, prices: dict[int, dict[int, float]]) -> int:
+    def _parse_site_payload(self, payload: dict, offers: dict[int, dict[int, WbSiteOffer]]) -> int:
         added = 0
         for product in payload.get("products") or []:
-            sizes = prices.setdefault(int(product["id"]), {})
-            for size in product.get("sizes") or []:
+            product_sizes = product.get("sizes") or []
+            sizes = offers.setdefault(int(product["id"]), {})
+            total_quantity = product.get("totalQuantity")
+            for size in product_sizes:
+                option_id = size.get("optionId")
+                if option_id is None:
+                    continue
                 product_price = (size.get("price") or {}).get("product")
-                if product_price is not None and size.get("optionId") is not None:
-                    sizes[int(size["optionId"])] = product_price / 100
-                    added += 1
+                sizes[int(option_id)] = WbSiteOffer(
+                    price=product_price / 100 if product_price is not None else None,
+                    stock=_size_stock(size, len(product_sizes), total_quantity),
+                )
+                added += 1
         return added
 
-    async def get_site_prices(self, nm_ids: list[int]) -> dict[int, dict[int, float]]:
-        """nm_id -> {optionId (= sizeID of the official API): buyer price in rubles}. Out of stock sizes have no price."""
-        prices = await self._get_site_prices_http(nm_ids)
-        if prices:
-            logger.info("WB site prices via HTTP: %s of %s nm_ids", len(prices), len(nm_ids))
-            return prices
-        logger.warning("HTTP got no WB site prices (card.wb.ru often returns 403), retrying via Chrome")
-        prices = await self._get_site_prices_chrome(nm_ids)
-        logger.info("WB site prices via Chrome: %s of %s nm_ids", len(prices), len(nm_ids))
-        if not prices:
-            logger.error("WB site prices empty — SPP and wallet columns will be blank")
-        return prices
+    async def get_site_prices(self, nm_ids: list[int]) -> dict[int, dict[int, WbSiteOffer]]:
+        """nm_id -> {optionId (= sizeID of the official API): buyer price and stock}.
 
-    async def _get_site_prices_http(self, nm_ids: list[int]) -> dict[int, dict[int, float]]:
-        prices: dict[int, dict[int, float]] = {}
+        A size with no buyer price is still returned, with stock 0, so a missing SPP
+        can be told apart from a storefront request that failed.
+        """
+        offers = await self._get_site_prices_http(nm_ids)
+        if offers:
+            logger.info("WB site prices via HTTP: %s of %s nm_ids", len(offers), len(nm_ids))
+            return offers
+        logger.warning("HTTP got no WB site prices (card.wb.ru often returns 403), retrying via Chrome")
+        offers = await self._get_site_prices_chrome(nm_ids)
+        logger.info("WB site prices via Chrome: %s of %s nm_ids", len(offers), len(nm_ids))
+        if not offers:
+            logger.error("WB site prices empty — SPP and wallet columns will be blank")
+        return offers
+
+    async def _get_site_prices_http(self, nm_ids: list[int]) -> dict[int, dict[int, WbSiteOffer]]:
+        offers: dict[int, dict[int, WbSiteOffer]] = {}
         timeout = aiohttp.ClientTimeout(total=60)
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -163,9 +208,9 @@ class WbApi:
                         exc_info=True,
                     )
                     continue
-                self._parse_site_payload(payload, prices)
+                self._parse_site_payload(payload, offers)
                 await asyncio.sleep(REQUEST_PAUSE_SECONDS)
-        return prices
+        return offers
 
     async def _wait_for_storefront(self, page) -> bool:
         # wbaas answers 498 and only reloads the real site after its script finishes.
@@ -199,12 +244,12 @@ class WbApi:
         except Exception:
             logger.warning("could not minimize the WB Chrome window", exc_info=True)
 
-    async def _get_site_prices_chrome(self, nm_ids: list[int]) -> dict[int, dict[int, float]]:
+    async def _get_site_prices_chrome(self, nm_ids: list[int]) -> dict[int, dict[int, WbSiteOffer]]:
         # card.wb.ru stays 403. Prices come from the same-origin __internal/u-card
         # endpoint after the wbaas challenge, which headless Chrome does not finish.
         from playwright.async_api import async_playwright
 
-        prices: dict[int, dict[int, float]] = {}
+        offers: dict[int, dict[int, WbSiteOffer]] = {}
         pw = await async_playwright().start()
         browser = await pw.chromium.launch(
             channel="chrome",
@@ -227,7 +272,7 @@ class WbApi:
             await page.goto("https://www.wildberries.ru/", wait_until="domcontentloaded", timeout=60_000)
             if not await self._wait_for_storefront(page):
                 logger.error("WB antibot challenge did not finish, SPP will be empty")
-                return prices
+                return offers
             session = await page.evaluate(
                 """() => {
                     let dest = null;
@@ -284,7 +329,7 @@ class WbApi:
                     )
                     continue
                 payload = json.loads(body)
-                added = self._parse_site_payload(payload, prices)
+                added = self._parse_site_payload(payload, offers)
                 logger.info(
                     "loaded WB site prices via Chrome, %s/%s nm_ids, %s sizes",
                     min(i + SITE_BATCH_SIZE, len(nm_ids)),
@@ -297,7 +342,7 @@ class WbApi:
         finally:
             await browser.close()
             await pw.stop()
-        return prices
+        return offers
 
     async def _get_json(self, session: aiohttp.ClientSession, url: str, params: dict) -> dict:
         for attempt in range(5):

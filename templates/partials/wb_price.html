@@ -13,9 +13,11 @@
     <th>Vendor</th>
     <th>Name</th>
     <th>Size</th>
+    <th>{{ previous_date }} stock</th>
     <th>{{ previous_date }} seller</th>
     <th>{{ previous_date }} SPP</th>
     <th>{{ previous_date }} wallet</th>
+    <th>{{ target_date }} stock</th>
     <th>{{ target_date }} seller</th>
     <th>{{ target_date }} SPP</th>
     <th>{{ target_date }} wallet</th>
@@ -29,9 +31,11 @@
   <td class="nowrap">{{ price.vendor_code }}</td>
   <td class="name">{{ price.name }}</td>
   <td>{{ price.tech_size_name }}</td>
+  <td class="num">{% if price.yesterday_stock is not none %}{{ price.yesterday_stock }}{% else %}<span class="muted">—</span>{% endif %}</td>
   <td class="num">{{ money(price.yesterday_seller_price) }}</td>
   <td class="num">{{ money(price.yesterday_spp) }}</td>
   <td class="num">{{ money(price.yesterday_wallet) }}</td>
+  <td class="num">{% if price.today_stock is not none %}{{ price.today_stock }}{% else %}<span class="muted">—</span>{% endif %}</td>
   <td class="num">{{ money(price.today_seller_price) }}</td>
   <td class="num">{{ money(price.today_spp) }}</td>
   <td class="num">{{ money(price.today_wallet) }}</td>
@@ -50,7 +54,7 @@
 
 {% if total_pages > 1 %}
 <tr>
-  <td colspan="12">
+  <td colspan="14">
     <div class="pager">
       {% if current_page > 1 %}
         <a class="btn"

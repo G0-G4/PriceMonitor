@@ -49,9 +49,10 @@ class WbService:
             name = names.get(item.nmID) or item.vendorCode
             item_site_prices = site_prices.get(item.nmID, {})
             for size in item.sizes or []:
-                site_price = item_site_prices.get(size.sizeID)
-                if site_price is None and len(item.sizes) == 1 and len(item_site_prices) == 1:
-                    site_price = next(iter(item_site_prices.values()))
+                offer = item_site_prices.get(size.sizeID)
+                if offer is None and len(item.sizes) == 1 and len(item_site_prices) == 1:
+                    offer = next(iter(item_site_prices.values()))
+                site_price = offer.price if offer else None
                 prices.append(WbPrice(
                     account=account,
                     nm_id=item.nmID,
@@ -67,15 +68,16 @@ class WbService:
                     club_discount=item.clubDiscount or 0,
                     wb_discount=_wb_discount(size.discountedPrice, site_price),
                     site_price=site_price,
+                    site_stock=offer.stock if offer else None,
                 ))
         # TEMP: debug output of the rows that go to the DB, remove once WB collection is verified
         for price in prices:
             logger.info(
                 "TEMP WB row account=%s nm_id=%s vendor_code=%s size=%s name=%s price=%s discounted=%s "
-                "club_discounted=%s discount=%s club_discount=%s wb_discount=%s site_price=%s",
+                "club_discounted=%s discount=%s club_discount=%s wb_discount=%s site_price=%s site_stock=%s",
                 price.account, price.nm_id, price.vendor_code, price.tech_size_name, price.name,
                 price.price, price.discounted_price, price.club_discounted_price,
-                price.discount, price.club_discount, price.wb_discount, price.site_price,
+                price.discount, price.club_discount, price.wb_discount, price.site_price, price.site_stock,
             )
         batch_size = 40
         for i in range(0, len(prices), batch_size):
@@ -148,9 +150,11 @@ class WbService:
                     "vendor_code",
                     "name",
                     "tech_size_name",
+                    "yesterday_stock",
                     "yesterday_seller_price",
                     "yesterday_spp",
                     "yesterday_wallet",
+                    "today_stock",
                     "today_seller_price",
                     "today_spp",
                     "today_wallet",
@@ -161,6 +165,8 @@ class WbService:
                     "vendor_code": "vendor_code",
                     "name": "name",
                     "tech_size_name": "size",
+                    "yesterday_stock": "Остаток на сайте " + previous_label,
+                    "today_stock": "Остаток на сайте " + report_date,
                     "today_seller_price": "Цена Продажи " + report_date,
                     "today_spp": "СПП " + report_date,
                     "today_wallet": "WB Кошелёк " + report_date,
@@ -173,8 +179,9 @@ class WbService:
                 if first_page:
                     df.to_excel(writer, index=False, sheet_name="Price Changes")
                     sheet = writer.sheets["Price Changes"]
+                    # K is today's SPP, G is yesterday's SPP
                     for row in range(2, len(df) + 2):
-                        sheet.cell(row=row, column=len(df.columns)).value = f"=I{row}/F{row}"
+                        sheet.cell(row=row, column=len(df.columns)).value = f"=K{row}/G{row}"
                     first_page = False
                 else:
                     startrow = writer.sheets["Price Changes"].max_row
@@ -187,7 +194,7 @@ class WbService:
                     )
                     sheet = writer.sheets["Price Changes"]
                     for row in range(startrow + 1, startrow + len(df) + 1):
-                        sheet.cell(row=row, column=len(df.columns)).value = f"=I{row}/F{row}"
+                        sheet.cell(row=row, column=len(df.columns)).value = f"=K{row}/G{row}"
 
                 offset += limit
                 logger.info("written %s of %s WB rows to excel", offset, response.total)

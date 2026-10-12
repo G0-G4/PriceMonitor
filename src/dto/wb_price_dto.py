@@ -42,6 +42,8 @@ class WbPriceChange(BaseModel):
     today_seller_price: float | None
     today_spp: float | None
     today_wallet: float | None
+    today_stock: int | None
+    yesterday_stock: int | None
     yesterday_seller_price: float | None
     yesterday_spp: float | None
     yesterday_wallet: float | None
