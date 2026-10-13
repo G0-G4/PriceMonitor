@@ -11,6 +11,7 @@
     <th>Date</th>
     <th>Account</th>
     <th>Vendor</th>
+    <th>WB article</th>
     <th>Name</th>
     <th>Size</th>
     <th>{{ previous_date }} stock</th>
@@ -29,6 +30,7 @@
   <td class="muted nowrap">{{ price.date }}</td>
   <td class="nowrap">{{ price.account }}</td>
   <td class="nowrap">{{ price.vendor_code }}</td>
+  <td class="nowrap">{{ price.nm_id }}</td>
   <td class="name">{{ price.name }}</td>
   <td>{{ price.tech_size_name }}</td>
   <td class="num">{% if price.yesterday_stock is not none %}{{ price.yesterday_stock }}{% else %}<span class="muted">—</span>{% endif %}</td>
@@ -54,7 +56,7 @@
 
 {% if total_pages > 1 %}
 <tr>
-  <td colspan="14">
+  <td colspan="15">
     <div class="pager">
       {% if current_page > 1 %}
         <a class="btn"

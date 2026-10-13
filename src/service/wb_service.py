@@ -3,6 +3,7 @@ import logging
 import os
 
 import pandas as pd
+from openpyxl.utils import get_column_letter
 
 from src.api.wb_api import WbApi
 from src.dto.wb_price_dto import WbPriceChangeResponse
@@ -148,6 +149,7 @@ class WbService:
                 column_order = [
                     "account",
                     "vendor_code",
+                    "nm_id",
                     "name",
                     "tech_size_name",
                     "yesterday_stock",
@@ -160,9 +162,10 @@ class WbService:
                     "today_wallet",
                 ]
                 df = df[column_order]
-                df = df.rename(columns={
+                renamed = {
                     "account": "account",
                     "vendor_code": "vendor_code",
+                    "nm_id": "Артикул WB",
                     "name": "name",
                     "tech_size_name": "size",
                     "yesterday_stock": "Остаток на сайте " + previous_label,
@@ -173,15 +176,17 @@ class WbService:
                     "yesterday_seller_price": "Цена Продажи " + previous_label,
                     "yesterday_spp": "СПП " + previous_label,
                     "yesterday_wallet": "WB Кошелёк " + previous_label,
-                })
+                }
+                yesterday_spp_col = get_column_letter(column_order.index("yesterday_spp") + 1)
+                today_spp_col = get_column_letter(column_order.index("today_spp") + 1)
+                df = df.rename(columns=renamed)
                 df["Изменение Цены %"] = None
 
                 if first_page:
                     df.to_excel(writer, index=False, sheet_name="Price Changes")
                     sheet = writer.sheets["Price Changes"]
-                    # K is today's SPP, G is yesterday's SPP
                     for row in range(2, len(df) + 2):
-                        sheet.cell(row=row, column=len(df.columns)).value = f"=K{row}/G{row}"
+                        sheet.cell(row=row, column=len(df.columns)).value = f"={today_spp_col}{row}/{yesterday_spp_col}{row}"
                     first_page = False
                 else:
                     startrow = writer.sheets["Price Changes"].max_row
@@ -194,7 +199,7 @@ class WbService:
                     )
                     sheet = writer.sheets["Price Changes"]
                     for row in range(startrow + 1, startrow + len(df) + 1):
-                        sheet.cell(row=row, column=len(df.columns)).value = f"=K{row}/G{row}"
+                        sheet.cell(row=row, column=len(df.columns)).value = f"={today_spp_col}{row}/{yesterday_spp_col}{row}"
 
                 offset += limit
                 logger.info("written %s of %s WB rows to excel", offset, response.total)
