@@ -44,6 +44,7 @@ async def save_wb_prices(prices: list[WbPrice]):
             "wb_discount": price.wb_discount,
             "site_price": price.site_price,
             "site_stock": price.site_stock,
+            "site_stock_capped": price.site_stock_capped,
         } for price in prices]
 
         stmt = insert(WbPrice).values(values)
@@ -61,6 +62,7 @@ async def save_wb_prices(prices: list[WbPrice]):
                 "wb_discount": stmt.excluded.wb_discount,
                 "site_price": stmt.excluded.site_price,
                 "site_stock": stmt.excluded.site_stock,
+                "site_stock_capped": stmt.excluded.site_stock_capped,
             }
         )
         await session.execute(stmt)
@@ -112,7 +114,9 @@ async def get_wb_price_change(
             today_spp=today_spp,
             today_wallet=wallet_price_from_spp(today_spp),
             today_stock=today.site_stock,
+            today_stock_capped=bool(today.site_stock_capped),
             yesterday_stock=yesterday.site_stock if yesterday else None,
+            yesterday_stock_capped=bool(yesterday.site_stock_capped) if yesterday else False,
             yesterday_seller_price=yesterday.discounted_price if yesterday else None,
             yesterday_spp=yesterday_spp,
             yesterday_wallet=wallet_price_from_spp(yesterday_spp),

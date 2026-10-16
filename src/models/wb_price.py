@@ -23,3 +23,5 @@ class WbPrice(Base):
     wb_discount = Column(Integer)
     site_price = Column(Float)
     site_stock = Column(Integer)
+    # 1 when site_stock is a lower bound because WB clipped qty
+    site_stock_capped = Column(Integer)

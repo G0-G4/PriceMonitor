@@ -20,6 +20,15 @@ from src.persistence.wb_price_db import (
 logger = logging.getLogger(__name__)
 
 
+def _stock_cell(stock: int | None, capped: bool):
+    # >N matches Evirma: the figure is a lower bound where WB clipped qty
+    if stock is None:
+        return None
+    if capped:
+        return f">{stock}"
+    return stock
+
+
 def _wb_discount(discounted_price: float | None, site_price: float | None) -> int | None:
     # SPP in percent, derived from the storefront price
     if not discounted_price or site_price is None:
@@ -70,15 +79,19 @@ class WbService:
                     wb_discount=_wb_discount(size.discountedPrice, site_price),
                     site_price=site_price,
                     site_stock=offer.stock if offer else None,
+                    site_stock_capped=(
+                        int(offer.stock_capped) if offer and offer.stock is not None else None
+                    ),
                 ))
         # TEMP: debug output of the rows that go to the DB, remove once WB collection is verified
         for price in prices:
             logger.info(
                 "TEMP WB row account=%s nm_id=%s vendor_code=%s size=%s name=%s price=%s discounted=%s "
-                "club_discounted=%s discount=%s club_discount=%s wb_discount=%s site_price=%s site_stock=%s",
+                "club_discounted=%s discount=%s club_discount=%s wb_discount=%s site_price=%s site_stock=%s site_stock_capped=%s",
                 price.account, price.nm_id, price.vendor_code, price.tech_size_name, price.name,
                 price.price, price.discounted_price, price.club_discounted_price,
                 price.discount, price.club_discount, price.wb_discount, price.site_price, price.site_stock,
+                price.site_stock_capped,
             )
         batch_size = 40
         for i in range(0, len(prices), batch_size):
@@ -145,7 +158,13 @@ class WbService:
                 if not response.price_changes:
                     break
 
-                df = pd.DataFrame([price.model_dump() for price in response.price_changes])
+                rows = []
+                for price in response.price_changes:
+                    row = price.model_dump()
+                    row["yesterday_stock"] = _stock_cell(price.yesterday_stock, price.yesterday_stock_capped)
+                    row["today_stock"] = _stock_cell(price.today_stock, price.today_stock_capped)
+                    rows.append(row)
+                df = pd.DataFrame(rows)
                 column_order = [
                     "account",
                     "vendor_code",
@@ -168,8 +187,8 @@ class WbService:
                     "nm_id": "Артикул WB",
                     "name": "name",
                     "tech_size_name": "size",
-                    "yesterday_stock": "Остаток на сайте " + previous_label,
-                    "today_stock": "Остаток на сайте " + report_date,
+                    "yesterday_stock": "Остаток " + previous_label,
+                    "today_stock": "Остаток " + report_date,
                     "today_seller_price": "Цена Продажи " + report_date,
                     "today_spp": "СПП " + report_date,
                     "today_wallet": "WB Кошелёк " + report_date,
