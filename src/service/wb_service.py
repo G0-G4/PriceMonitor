@@ -5,17 +5,18 @@ import os
 import pandas as pd
 from openpyxl.utils import get_column_letter
 
-from src.api.wb_api import WbApi
+from src.api.wb_api import SiteScan, WbApi
 from src.dto.wb_price_dto import WbPriceChangeResponse
 from src.models.database import session_maker
 from src.models.wb_price import WbPrice
-from src.persistence.parameters_db import get_report_path, get_wb_api_token
+from src.persistence.parameters_db import get_report_path, get_wb_api_token, get_wb_dests
 from src.persistence.wb_price_db import (
     count_wb_price_change,
     get_previous_wb_day,
     get_wb_price_change,
     save_wb_prices,
 )
+from src.wb_cities import city_name
 
 logger = logging.getLogger(__name__)
 
@@ -36,17 +37,39 @@ def _wb_discount(discounted_price: float | None, site_price: float | None) -> in
     return round((1 - site_price / discounted_price) * 100)
 
 
+def _site_warnings(scan: SiteScan, dests: list[int]) -> list[str]:
+    """What left buyer prices or stock empty, for the collection task."""
+    if scan.storefront_blocked:
+        return ["WB storefront did not pass the antibot check, buyer prices, SPP and stock are empty"]
+    warnings = []
+    if not scan.offers and len(scan.failed_dests) == len(dests):
+        warnings.append("WB storefront answered for no city, buyer prices, SPP and stock are empty")
+    elif scan.failed_dests:
+        names = ", ".join(city_name(dest) for dest in scan.failed_dests)
+        warnings.append(f"WB did not answer for {names}, prices and stock use the other cities")
+    if scan.missing_sizes:
+        by_city = ", ".join(
+            f"{city_name(dest)} {count}"
+            for dest, count in sorted(scan.missing_price.items(), key=lambda item: -item[1])
+        )
+        warnings.append(f"{scan.missing_sizes} sizes have no price in some cities ({by_city}), their SPP is empty")
+    return warnings
+
+
 class WbService:
     def __init__(self):
         self.api = WbApi()
 
-    async def collect_prices(self, today: date, account: str):
+    async def collect_prices(self, today: date, account: str) -> list[str]:
+        """Collect and save the account's prices. Returns warnings about data left empty."""
         token = await get_wb_api_token(account)
         if not token:
             raise Exception(f"WB API token is not configured for {account}")
         goods = await self.api.get_prices(token)
         names = await self.api.get_card_names(token)
-        site_prices = await self.api.get_site_prices([item.nmID for item in goods])
+        dests = await get_wb_dests(account)
+        scan = await self.api.get_site_prices([item.nmID for item in goods], dests)
+        site_prices = scan.offers
         logger.info(
             "WB storefront matched %s of %s nm_ids for %s",
             len(site_prices),
@@ -82,21 +105,16 @@ class WbService:
                     site_stock_capped=(
                         int(offer.stock_capped) if offer and offer.stock is not None else None
                     ),
+                    site_dests_key=offer.dests_key if offer else None,
                 ))
-        # TEMP: debug output of the rows that go to the DB, remove once WB collection is verified
-        for price in prices:
-            logger.info(
-                "TEMP WB row account=%s nm_id=%s vendor_code=%s size=%s name=%s price=%s discounted=%s "
-                "club_discounted=%s discount=%s club_discount=%s wb_discount=%s site_price=%s site_stock=%s site_stock_capped=%s",
-                price.account, price.nm_id, price.vendor_code, price.tech_size_name, price.name,
-                price.price, price.discounted_price, price.club_discounted_price,
-                price.discount, price.club_discount, price.wb_discount, price.site_price, price.site_stock,
-                price.site_stock_capped,
-            )
         batch_size = 40
         for i in range(0, len(prices), batch_size):
             await save_wb_prices(prices[i:i + batch_size])
         logger.info("saved %s WB price rows for %s", len(prices), account)
+        warnings = _site_warnings(scan, dests)
+        for warning in warnings:
+            logger.warning("WB %s: %s", account, warning)
+        return warnings
 
     async def get_price_change(
         self,
@@ -204,8 +222,9 @@ class WbService:
                 if first_page:
                     df.to_excel(writer, index=False, sheet_name="Price Changes")
                     sheet = writer.sheets["Price Changes"]
-                    for row in range(2, len(df) + 2):
-                        sheet.cell(row=row, column=len(df.columns)).value = f"={today_spp_col}{row}/{yesterday_spp_col}{row}"
+                    for row, price in zip(range(2, len(df) + 2), response.price_changes):
+                        if not price.dests_changed:
+                            sheet.cell(row=row, column=len(df.columns)).value = f"={today_spp_col}{row}/{yesterday_spp_col}{row}"
                     first_page = False
                 else:
                     startrow = writer.sheets["Price Changes"].max_row
@@ -217,8 +236,9 @@ class WbService:
                         header=False,
                     )
                     sheet = writer.sheets["Price Changes"]
-                    for row in range(startrow + 1, startrow + len(df) + 1):
-                        sheet.cell(row=row, column=len(df.columns)).value = f"={today_spp_col}{row}/{yesterday_spp_col}{row}"
+                    for row, price in zip(range(startrow + 1, startrow + len(df) + 1), response.price_changes):
+                        if not price.dests_changed:
+                            sheet.cell(row=row, column=len(df.columns)).value = f"={today_spp_col}{row}/{yesterday_spp_col}{row}"
 
                 offset += limit
                 logger.info("written %s of %s WB rows to excel", offset, response.total)

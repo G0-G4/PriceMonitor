@@ -1,10 +1,15 @@
 import asyncio
+import json
+import logging
 import re
 from dataclasses import dataclass
 
 from src.models.database import session_maker
 from src.models.parameters import Parameter
 from sqlalchemy import select, delete
+from src.wb_cities import EVIRMA_33, MAX_CITIES
+
+logger = logging.getLogger(__name__)
 
 
 async def add_company_ids(company_ids: list[str]):
@@ -123,6 +128,7 @@ async def delete_scheduled_time(scheduled_time: str):
 WB_API_TOKEN_NAME = "wb_api_token"
 WB_ACCOUNT_NAME = "wb_account"
 WB_TOKEN_PREFIX = "wb_token:"
+WB_DESTS_PREFIX = "wb_dests:"
 _WB_ACCOUNT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
@@ -141,6 +147,20 @@ def normalize_wb_account(account: str) -> str:
 
 def _wb_token_param_name(account: str) -> str:
     return f"{WB_TOKEN_PREFIX}{account}"
+
+
+def _wb_dests_param_name(account: str) -> str:
+    return f"{WB_DESTS_PREFIX}{account}"
+
+
+def normalize_wb_dests(dests: list[int]) -> list[int]:
+    # neighbouring small towns can share one dest, keep it once
+    unique = list(dict.fromkeys(int(dest) for dest in dests))
+    if not unique:
+        raise ValueError("Select at least one city")
+    if len(unique) > MAX_CITIES:
+        raise ValueError(f"At most {MAX_CITIES} cities, {len(unique)} selected")
+    return unique
 
 
 async def migrate_legacy_wb_token():
@@ -222,9 +242,34 @@ async def delete_wb_account(account: str):
                 Parameter.value == account,
             )
         )
-        token_param = await find_parameter_by_name(_wb_token_param_name(account), session)
-        if token_param:
-            await session.delete(token_param)
+        for name in (_wb_token_param_name(account), _wb_dests_param_name(account)):
+            param = await find_parameter_by_name(name, session)
+            if param:
+                await session.delete(param)
+
+
+async def get_wb_dests(account: str) -> list[int]:
+    """Cities the account collects buyer prices and stock in. Unset means Evirma's 33."""
+    async with session_maker() as session:
+        parameter = await find_parameter_by_name(_wb_dests_param_name(account), session)
+    if parameter is None or not parameter.value:
+        return list(EVIRMA_33)
+    try:
+        return normalize_wb_dests(json.loads(parameter.value))
+    except (ValueError, TypeError):
+        logger.warning("bad WB cities for %s: %r, using Evirma's 33", account, parameter.value)
+        return list(EVIRMA_33)
+
+
+async def save_wb_dests(account: str, dests: list[int]):
+    account = normalize_wb_account(account)
+    dests = normalize_wb_dests(dests)
+    async with session_maker() as session, session.begin():
+        parameter = await find_parameter_by_name(_wb_dests_param_name(account), session)
+        if parameter is None:
+            session.add(Parameter(name=_wb_dests_param_name(account), value=json.dumps(dests)))
+        else:
+            parameter.value = json.dumps(dests)
 
 
 def mask_token(token: str | None) -> str:

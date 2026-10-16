@@ -5,6 +5,10 @@
   <td class="name">
     {% if task.status == 'FINISHED' %}
       <span class="badge badge-ok">Finished</span>
+      {% if task.warning %}
+        <span class="badge badge-warn">Warning</span>
+        <span class="muted">{{ task.warning }}</span>
+      {% endif %}
     {% elif task.status and task.status[:5] == 'ERROR' %}
       <span class="badge badge-err">Error</span>
       <span class="muted">{{ task.status[6:]|trim }}</span>

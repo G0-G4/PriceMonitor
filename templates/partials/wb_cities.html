@@ -1,0 +1,47 @@
+{% if saved %}
+<span id="{{ dom_id }}-count" hx-swap-oob="true">{{ selected_count }}</span>
+{% endif %}
+<form class="wb-cities"
+      hx-post="/wb_accounts/{{ account }}/cities"
+      hx-target="#{{ dom_id }}-cities"
+      data-max="{{ max_cities }}">
+  <p class="hint" style="margin: 0 0 10px;">
+    Buyer price is the average over these cities, stock is summed over their warehouses.
+  </p>
+  <div class="btn-row">
+    <button type="button" class="btn" data-preset="{{ presets.evirma }}">Like Evirma (33)</button>
+    <button type="button" class="btn" data-preset="{{ presets.regions7 }}">7 regions</button>
+    <button type="button" class="btn" data-preset="{{ presets.moscow }}">Moscow only</button>
+  </div>
+  <div class="wb-cities-chips"></div>
+  <input type="text" class="wb-cities-search" placeholder="Find a city" autocomplete="off">
+  <div class="wb-cities-list">
+    {% for district, regions in groups %}
+    <details class="wb-cities-district">
+      <summary>{{ district }}</summary>
+      {% for region, cities in regions %}
+      <details class="wb-cities-region">
+        <summary>{{ region }}</summary>
+        {% for city in cities %}
+        <label class="wb-cities-item" data-name="{{ city.city|lower|replace('ё', 'е') }}">
+          <input type="checkbox" name="dest" value="{{ city.dest }}" data-city="{{ city.city }}"
+                 {% if city.dest in selected %}checked{% endif %}>
+          {{ city.city }}
+        </label>
+        {% endfor %}
+      </details>
+      {% endfor %}
+    </details>
+    {% endfor %}
+  </div>
+  {% if error %}
+    <p class="flash-err">{{ error }}</p>
+  {% elif saved %}
+    <p class="flash-ok">Saved, {{ selected_count }} cities. The next collection uses them.</p>
+  {% endif %}
+  <div class="btn-row" style="margin-top: 10px;">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <button type="button" class="btn wb-cities-close">Close</button>
+    <span class="muted wb-cities-count"></span>
+  </div>
+</form>

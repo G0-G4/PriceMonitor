@@ -30,6 +30,8 @@ Requires Python >=3.13. Package manager is `uv` (not pip).
 | `src/models/` | SQLAlchemy models |
 | `src/dto/` | Pydantic response models |
 | `templates/` | Jinja2 + htmx HTML templates |
+| `src/wb_cities.py`, `data/wb_cities.json` | WB cities a cabinet collects buyer price and stock in: one `dest` per city, presets (Evirma's 33, 7 regions, Moscow). Cities per cabinet are stored in `Parameter` as `wb_dests:<account>` |
+| `scripts/build_wb_cities.py` | Rebuilds `data/wb_cities.json` by hand from the WB pickup-point list and hflabs/city. Not part of the build |
 
 ## Migrations
 

@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
 from logging import getLevelNamesMapping
 
+import json
+from itertools import groupby
+
 from fastapi import FastAPI, Request, Form, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,7 +21,8 @@ from src.persistence.wb_price_db import get_previous_wb_day
 from src.persistence.parameters_db import add_scheduled_time, delete_scheduled_time, get_company_ids, add_company_ids, \
     delete_company_id, \
     get_report_path, get_scheduled_times, save_report_path, get_wb_accounts, add_wb_account, delete_wb_account, \
-    mask_token
+    mask_token, get_wb_dests, save_wb_dests
+from src.wb_cities import MAX_CITIES, PRESETS, all_cities
 from src.persistence.task_db import count_tasks, get_tasks
 from src.browser_request_sender import BrowserRequestSender, profile_exists, ReLoginRequiredError
 import uvicorn
@@ -67,7 +71,7 @@ logging.getLogger('aiosqlite').setLevel(logging.WARNING)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("VERSION 1.5.0")
+    logger.info("VERSION 1.6.0")
     from src.models.database import setup_migrations
     await setup_migrations()
     try:
@@ -124,14 +128,47 @@ async def refresh_scheduler_services():
     scheduler_service.wb_service = await get_wb_service()
 
 
+def _dom_id(account: str) -> str:
+    # account names may contain '.', which breaks an id selector
+    return "wb-" + account.encode().hex()
+
+
 async def _wb_accounts_view() -> list[dict]:
     return [
         {
             "name": acc.name,
             "token_masked": mask_token(acc.token),
+            "dom_id": _dom_id(acc.name),
+            "cities_count": len(await get_wb_dests(acc.name)),
         }
         for acc in await get_wb_accounts()
     ]
+
+
+def _city_groups() -> list[tuple[str, list[tuple[str, list]]]]:
+    # the directory is sorted by district, region, population
+    return [
+        (district, [(region, list(cities)) for region, cities in groupby(items, key=lambda c: c.region)])
+        for district, items in groupby(all_cities(), key=lambda c: c.district)
+    ]
+
+
+def _wb_cities_context(request: Request, account: str, selected: list[int], extra: dict | None = None) -> dict:
+    context = {
+        "request": request,
+        "account": account,
+        "dom_id": _dom_id(account),
+        "selected": set(selected),
+        "selected_count": len(set(selected)),
+        "groups": _city_groups(),
+        "presets": {name: json.dumps(list(dests)) for name, dests in PRESETS.items()},
+        "max_cities": MAX_CITIES,
+        "error": None,
+        "saved": False,
+    }
+    if extra:
+        context.update(extra)
+    return context
 
 
 async def _wb_auth_context(request: Request, extra: dict | None = None) -> dict:
@@ -365,6 +402,30 @@ async def remove_wb_account(request: Request, account: str):
         return templates.TemplateResponse("partials/wb_accounts.html", await _wb_auth_context(request, {
             "wb_account_error": str(e),
         }))
+
+
+@app.get("/wb_accounts/{account}/cities", response_class=HTMLResponse)
+async def get_wb_cities(request: Request, account: str):
+    return templates.TemplateResponse(
+        "partials/wb_cities.html",
+        _wb_cities_context(request, account, await get_wb_dests(account)),
+    )
+
+
+@app.post("/wb_accounts/{account}/cities", response_class=HTMLResponse)
+async def save_wb_cities(request: Request, account: str, dest: list[int] = Form(default=[])):
+    try:
+        await save_wb_dests(account, dest)
+    except ValueError as e:
+        # keep the ticks so the seller can fix them, the saved set stays as it was
+        return templates.TemplateResponse(
+            "partials/wb_cities.html",
+            _wb_cities_context(request, account, dest, {"error": str(e)}),
+        )
+    return templates.TemplateResponse(
+        "partials/wb_cities.html",
+        _wb_cities_context(request, account, await get_wb_dests(account), {"saved": True}),
+    )
 
 
 @app.post("/scheduled_times", response_class=HTMLResponse)

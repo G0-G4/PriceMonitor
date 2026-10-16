@@ -131,11 +131,12 @@ class ScedulerService:
             task = Task(name=task_name, status="getting prices")
             await save_task(task)
             try:
-                await self.wb_service.collect_prices(collect_date, account.name)
+                warnings = await self.wb_service.collect_prices(collect_date, account.name)
                 task.status = "generating report"
                 await save_task(task)
                 await self.wb_service.prepare_excel_report(collect_date, account=account.name)
                 task.status = "FINISHED"
+                task.warning = "; ".join(warnings) or None
                 await save_task(task)
             except Exception as e:
                 logger.exception(e)

@@ -2,13 +2,14 @@ import asyncio
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from urllib.parse import urlencode
 
 import aiohttp
 from yarl import URL
 
 from src.dto.wb_price_dto import WbGoods, WbListGoodsResponse
+from src.wb_cities import dests_key
 
 logger = logging.getLogger(__name__)
 
@@ -18,64 +19,39 @@ CONTENT_CARDS_URL = "https://content-api.wildberries.ru/content/v2/get/cards/lis
 SITE_CARDS_URL = "https://card.wb.ru/cards/v4/detail"
 # same-origin endpoint the storefront itself calls after the wbaas challenge
 INTERNAL_CARDS_URL = "https://www.wildberries.ru/__internal/u-card/cards/v4/detail"
-# delivery region the storefront prices are taken for: Moscow as Evirma 2.60.2 queries it
-SITE_DEST = "-1257786"
 SITE_BATCH_SIZE = 100
 REQUEST_PAUSE_SECONDS = 0.7
 # cities in one wave. A 429 pauses the next wave for every in-flight request.
 STOCK_CONCURRENCY = 6
 STOCK_ATTEMPTS = 4
 STOREFRONT_WAIT_SECONDS = 30
-# Cities Evirma 2.60.2 queries by default for warehouse stock (its seo destinations).
-# A warehouse reports qty only for regions it delivers to, so one Moscow dest undercounts.
-STOCK_DESTS: tuple[int, ...] = (
-    -364001,  # Москва, центр
-    123586098,  # Балашиха
-    -3339991,  # Смоленск
-    -1263279,  # Тверь
-    -5817685,  # Рязань
-    12358385,  # Воронеж
-    -3351953,  # Ярославль
-    -1187265,  # Санкт-Петербург
-    -2448021,  # Тольятти
-    12358461,  # Саратов
-    -1257218,  # Самара
-    12358495,  # Уфа
-    -2133462,  # Казань
-    -2689194,  # Новокузнецк
-    12358535,  # Нижний Новгород
-    12358361,  # Пермь
-    -4039466,  # Волгоград
-    -2228364,  # Ростов-на-Дону
-    12358058,  # Краснодар
-    -5921133,  # Махачкала
-    -3888337,  # Грозный
-    123585969,  # Магнитогорск
-    -897988,  # Тюмень
-    -1579833,  # Челябинск
-    -5803327,  # Екатеринбург
-    -3902910,  # Омск
-    -364763,  # Новосибирск
-    12356481,  # Красноярск
-    -1785058,  # Хабаровск
-    123586013,  # Владивосток
-    -5827722,  # Иркутск
-    -59208,  # Минск
-    85,  # Астана
-)
-
-
 @dataclass(frozen=True)
 class WbSiteOffer:
     """Buyer-site price and stock for one size. price is None when the size is listed but not for sale.
 
-    stock is the reconstructed warehouse quantity for this size. stock_capped means WB clipped
-    qty, so stock is a lower bound and the UI shows it as >N.
+    price is the average over the cities that answered for this size, dests_key their
+    fingerprint. stock is the reconstructed warehouse quantity for this size. stock_capped
+    means WB clipped qty, so stock is a lower bound and the UI shows it as >N.
     """
 
     price: float | None
     stock: int | None
     stock_capped: bool = False
+    dests_key: str | None = None
+
+
+@dataclass
+class SiteScan:
+    """Storefront result for one collection, with what kept part of it empty."""
+
+    offers: dict[int, dict[int, WbSiteOffer]]
+    # dest -> sizes priced in other cities but not in this one
+    missing_price: dict[int, int]
+    # sizes left without a price because of missing_price
+    missing_sizes: int
+    # cities that gave no answer for at least one batch of articles
+    failed_dests: list[int]
+    storefront_blocked: bool = False
 
 
 @dataclass(frozen=True)
@@ -106,6 +82,37 @@ def _stock_rows(size: dict) -> list:
     if size.get("wh") is not None:
         return [size]
     return []
+
+
+def _collect_prices(payload: dict) -> dict[tuple[int, int], float | None]:
+    """(nm, optionId) -> buyer price in one city, None when the size is listed but not for sale."""
+    prices: dict[tuple[int, int], float | None] = {}
+    for product in payload.get("products") or []:
+        nm_id = _as_int(product.get("id"))
+        if nm_id is None:
+            continue
+        for size in product.get("sizes") or []:
+            option_id = _as_int(size.get("optionId"))
+            if option_id is None:
+                continue
+            product_price = (size.get("price") or {}).get("product")
+            prices[(nm_id, option_id)] = product_price / 100 if product_price is not None else None
+    return prices
+
+
+def average_site_price(by_dest: dict[int, float | None], answered: list[int]) -> tuple[float | None, list[int]]:
+    """Average buyer price over the cities that answered, and the cities that lack it.
+
+    A size priced in some cities and not in others gets no price: an average over a
+    changing set of cities would move without any price change.
+    """
+    prices = [by_dest.get(dest) for dest in answered]
+    priced = [price for price in prices if price is not None]
+    if not priced:
+        return None, []
+    if len(priced) < len(prices):
+        return None, [dest for dest in answered if by_dest.get(dest) is None]
+    return round(sum(priced) / len(priced), 2), []
 
 
 def _collect_stock_observations(payload: dict) -> tuple[list[tuple[int, int, int, int]], set[int], set[tuple[int, int]]]:
@@ -177,11 +184,11 @@ def merge_size_stock(
         for option_id, offer in list(current.items()):
             found = size_stocks.get(option_id)
             if found is not None:
-                current[option_id] = WbSiteOffer(offer.price, found.qty, found.capped)
+                current[option_id] = replace(offer, stock=found.qty, stock_capped=found.capped)
             elif (nm_id, option_id) in seen_sizes:
-                current[option_id] = WbSiteOffer(offer.price, 0, False)
+                current[option_id] = replace(offer, stock=0, stock_capped=False)
             else:
-                current[option_id] = WbSiteOffer(offer.price, None, False)
+                current[option_id] = replace(offer, stock=None, stock_capped=False)
         for option_id, found in size_stocks.items():
             if option_id not in current:
                 current[option_id] = WbSiteOffer(None, found.qty, found.capped)
@@ -262,24 +269,10 @@ class WbApi:
         logger.info("loaded %s WB card names", len(names))
         return names
 
-    def _internal_cards_url(self, nm_ids: list[int], dest: str) -> str:
-        # nm is joined by raw ';'. urlencode would turn that into %3B and WB returns nothing.
-        query = urlencode({
-            "appType": 1,
-            "curr": "rub",
-            "dest": dest,
-            "spp": 30,
-            "hide_vflags": 4294967296,
-            "mtype": 257,
-            "lang": "ru",
-            "ab_testing": "false",
-            "nm": ";".join(str(nm_id) for nm_id in nm_ids),
-        }, safe=";")
-        return f"{INTERNAL_CARDS_URL}?{query}"
-
     def _stock_cards_url(self, base: str, nm_ids: list[int], dest: int) -> str:
-        # hide_dtype=13 is the warehouse-stock request Evirma sends. The price
-        # request keeps hide_vflags and mtype, so SPP stays on the buyer query.
+        # hide_dtype=13 is the warehouse-stock request Evirma sends. Its buyer price
+        # matched the hide_vflags/mtype price request for all 1165 sizes on 2026-10-16,
+        # so one request per city gives both price and stock.
         query = urlencode({
             "appType": 1,
             "curr": "rub",
@@ -292,74 +285,24 @@ class WbApi:
         }, safe=";")
         return f"{base}?{query}"
 
-    def _parse_site_payload(self, payload: dict, offers: dict[int, dict[int, WbSiteOffer]]) -> int:
-        added = 0
-        for product in payload.get("products") or []:
-            product_sizes = product.get("sizes") or []
-            sizes = offers.setdefault(int(product["id"]), {})
-            for size in product_sizes:
-                option_id = size.get("optionId")
-                if option_id is None:
-                    continue
-                product_price = (size.get("price") or {}).get("product")
-                sizes[int(option_id)] = WbSiteOffer(
-                    price=product_price / 100 if product_price is not None else None,
-                    stock=None,
-                )
-                added += 1
-        return added
-
-    async def get_site_prices(self, nm_ids: list[int]) -> dict[int, dict[int, WbSiteOffer]]:
-        """nm_id -> {optionId (= sizeID of the official API): buyer price and stock}.
+    async def get_site_prices(self, nm_ids: list[int], dests: list[int]) -> SiteScan:
+        """nm_id -> {optionId (= sizeID of the official API): buyer price and stock} over dests.
 
         A size with no buyer price is still returned, so a missing SPP can be told
-        apart from a storefront request that failed. Stock comes only from the
-        multi-city warehouse scan.
+        apart from a storefront request that failed.
         """
-        offers = await self._get_site_prices_http(nm_ids)
-        if offers:
-            logger.info("WB site prices via HTTP: %s of %s nm_ids", len(offers), len(nm_ids))
-            await self._attach_stock_http(nm_ids, offers)
-            return offers
+        scan = await self._get_site_prices_http(nm_ids, dests)
+        if scan.offers:
+            logger.info("WB site prices via HTTP: %s of %s nm_ids", len(scan.offers), len(nm_ids))
+            return scan
         logger.warning("HTTP got no WB site prices (card.wb.ru often returns 403), retrying via Chrome")
-        offers = await self._get_site_prices_chrome(nm_ids)
-        logger.info("WB site prices via Chrome: %s of %s nm_ids", len(offers), len(nm_ids))
-        if not offers:
+        scan = await self._get_site_prices_chrome(nm_ids, dests)
+        logger.info("WB site prices via Chrome: %s of %s nm_ids", len(scan.offers), len(nm_ids))
+        if not scan.offers:
             logger.error("WB site prices empty — SPP and wallet columns will be blank")
-        return offers
+        return scan
 
-    async def _get_site_prices_http(self, nm_ids: list[int]) -> dict[int, dict[int, WbSiteOffer]]:
-        offers: dict[int, dict[int, WbSiteOffer]] = {}
-        timeout = aiohttp.ClientTimeout(total=60)
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Accept": "application/json",
-            "Accept-Language": "ru-RU,ru;q=0.9",
-            "Referer": "https://www.wildberries.ru/",
-        }
-        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-            for i in range(0, len(nm_ids), SITE_BATCH_SIZE):
-                batch = nm_ids[i:i + SITE_BATCH_SIZE]
-                try:
-                    payload = await self._get_json(session, SITE_CARDS_URL, params={
-                        "appType": 1,
-                        "curr": "rub",
-                        "dest": SITE_DEST,
-                        "spp": 30,
-                        "nm": ";".join(str(nm_id) for nm_id in batch),
-                    })
-                except Exception:
-                    logger.warning(
-                        "failed to load WB site prices over HTTP for %s nm_ids",
-                        len(batch),
-                        exc_info=True,
-                    )
-                    continue
-                self._parse_site_payload(payload, offers)
-                await asyncio.sleep(REQUEST_PAUSE_SECONDS)
-        return offers
-
-    async def _attach_stock_http(self, nm_ids: list[int], offers: dict[int, dict[int, WbSiteOffer]]) -> None:
+    async def _get_site_prices_http(self, nm_ids: list[int], dests: list[int]) -> SiteScan:
         timeout = aiohttp.ClientTimeout(total=60)
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -372,7 +315,7 @@ class WbApi:
             return list(await asyncio.gather(*(self._get_stock_once(session, url) for url in urls)))
 
         async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-            await self._scan_warehouse_stock(nm_ids, offers, fetch_many, SITE_CARDS_URL)
+            return await self._scan_cities(nm_ids, dests, fetch_many, SITE_CARDS_URL)
 
     async def _get_stock_once(self, session: aiohttp.ClientSession, url: str) -> FetchResult:
         request_url = URL(url, encoded=True)
@@ -390,28 +333,32 @@ class WbApi:
             logger.warning("WB stock request failed: %s", exc)
             return FetchResult(None, 0)
 
-    async def _scan_warehouse_stock(self, nm_ids, offers, fetch_many, base: str) -> None:
-        # One request is one city. A wave sends STOCK_CONCURRENCY cities at once.
+    async def _scan_cities(self, nm_ids, dests: list[int], fetch_many, base: str) -> SiteScan:
+        # One request is one city and one batch. A wave sends STOCK_CONCURRENCY at once.
         # Any 429 holds the following wave; the limited requests go back in the queue.
         batches = [nm_ids[i:i + SITE_BATCH_SIZE] for i in range(0, len(nm_ids), SITE_BATCH_SIZE)]
         pending = [
-            [dest, self._stock_cards_url(base, batch, dest), 0]
-            for dest in STOCK_DESTS
-            for batch in batches
+            [dest, self._stock_cards_url(base, batch, dest), 0, batch_no]
+            for dest in dests
+            for batch_no, batch in enumerate(batches)
         ]
         observations: list[tuple[int, int, int, int]] = []
         seen_products: set[int] = set()
         seen_sizes: set[tuple[int, int]] = set()
-        first_dest = STOCK_DESTS[0]
+        # (nm, optionId) -> dest -> price, and which cities answered each batch
+        prices: dict[tuple[int, int], dict[int, float | None]] = {}
+        answered: list[list[int]] = [[] for _ in batches]
+        failed: set[int] = set()
+        first_dest = dests[0]
         first_left = len(batches)
         first_ok = False
         limited = 0
         backoff = 1.0
         started = time.monotonic()
         logger.info(
-            "loading WB warehouse stock for %s nm_ids across %s dests, %s at a time",
+            "loading WB prices and stock for %s nm_ids across %s dests, %s at a time",
             len(nm_ids),
-            len(STOCK_DESTS),
+            len(dests),
             STOCK_CONCURRENCY,
         )
         wave_no = 0
@@ -420,7 +367,7 @@ class WbApi:
             wave = pending[:STOCK_CONCURRENCY]
             pending = pending[STOCK_CONCURRENCY:]
             try:
-                fetched = await fetch_many([url for _, url, _ in wave])
+                fetched = await fetch_many([url for _, url, _, _ in wave])
             except Exception:
                 logger.warning("WB stock wave %s failed", wave_no, exc_info=True)
                 fetched = [FetchResult(None, 0) for _ in wave]
@@ -430,25 +377,30 @@ class WbApi:
             retry_after = 0.0
             wave_ok = 0
             wave_limited = 0
-            for (dest, url, attempt), result in zip(wave, fetched):
+            for (dest, url, attempt, batch_no), result in zip(wave, fetched):
                 if result.status == 429:
                     limited += 1
                     wave_limited += 1
                     if result.retry_after:
                         retry_after = max(retry_after, result.retry_after)
                     if attempt + 1 < STOCK_ATTEMPTS:
-                        retry.append([dest, url, attempt + 1])
+                        retry.append([dest, url, attempt + 1, batch_no])
                     else:
                         logger.warning("WB stock dest=%s stayed rate limited", dest)
+                        failed.add(dest)
                         if dest == first_dest:
                             first_left -= 1
                     continue
                 if not result.payload:
+                    failed.add(dest)
                     if dest == first_dest:
                         first_left -= 1
                     if result.status not in (0, 200):
                         logger.warning("WB stock dest=%s status=%s", dest, result.status)
                     continue
+                answered[batch_no].append(dest)
+                for key, price in _collect_prices(result.payload).items():
+                    prices.setdefault(key, {})[dest] = price
                 obs, products, sizes = _collect_stock_observations(result.payload)
                 observations.extend(obs)
                 seen_products.update(products)
@@ -467,8 +419,8 @@ class WbApi:
                 len(seen_products),
             )
             if first_left <= 0 and not first_ok:
-                logger.error("WB warehouse stock unavailable, site stock will be empty")
-                return
+                logger.error("WB storefront answered nothing for dest=%s, site prices and stock will be empty", first_dest)
+                return SiteScan({}, {}, 0, list(dests))
             if retry:
                 delay = retry_after if retry_after > 0 else backoff
                 logger.warning(
@@ -482,8 +434,20 @@ class WbApi:
             else:
                 backoff = 1.0
         if not seen_products:
-            logger.error("WB warehouse stock empty, site stock will be empty")
-            return
+            logger.error("WB storefront returned no products, site prices and stock will be empty")
+            return SiteScan({}, {}, 0, sorted(failed))
+        batch_of = {nm_id: batch_no for batch_no, batch in enumerate(batches) for nm_id in batch}
+        offers: dict[int, dict[int, WbSiteOffer]] = {}
+        missing_price: dict[int, int] = {}
+        missing_sizes = 0
+        for (nm_id, option_id), by_dest in prices.items():
+            cities = answered[batch_of[nm_id]] if nm_id in batch_of else []
+            price, missing = average_site_price(by_dest, cities)
+            if missing:
+                missing_sizes += 1
+            for dest in missing:
+                missing_price[dest] = missing_price.get(dest, 0) + 1
+            offers.setdefault(nm_id, {})[option_id] = WbSiteOffer(price, None, dests_key=dests_key(cities))
         merge_size_stock(offers, observations, seen_products, seen_sizes)
         capped = sum(1 for sizes in offers.values() for offer in sizes.values() if offer.stock_capped)
         logger.info(
@@ -494,6 +458,9 @@ class WbApi:
             time.monotonic() - started,
             limited,
         )
+        if failed:
+            logger.warning("WB storefront gave no answer for dests %s", sorted(failed))
+        return SiteScan(offers, missing_price, missing_sizes, sorted(failed))
 
     async def _wait_for_storefront(self, page) -> bool:
         # wbaas answers 498 and only reloads the real site after its script finishes.
@@ -527,12 +494,12 @@ class WbApi:
         except Exception:
             logger.warning("could not minimize the WB Chrome window", exc_info=True)
 
-    async def _get_site_prices_chrome(self, nm_ids: list[int]) -> dict[int, dict[int, WbSiteOffer]]:
+    async def _get_site_prices_chrome(self, nm_ids: list[int], dests: list[int]) -> SiteScan:
         # card.wb.ru stays 403. Prices come from the same-origin __internal/u-card
         # endpoint after the wbaas challenge, which headless Chrome does not finish.
         from playwright.async_api import async_playwright
 
-        offers: dict[int, dict[int, WbSiteOffer]] = {}
+        scan = SiteScan({}, {}, 0, list(dests))
         pw = await async_playwright().start()
         browser = await pw.chromium.launch(
             channel="chrome",
@@ -555,7 +522,7 @@ class WbApi:
             await page.goto("https://www.wildberries.ru/", wait_until="domcontentloaded", timeout=60_000)
             if not await self._wait_for_storefront(page):
                 logger.error("WB antibot challenge did not finish, SPP will be empty")
-                return offers
+                return SiteScan({}, {}, 0, [], storefront_blocked=True)
             session = await page.evaluate(
                 """() => {
                     const hostVersion = window.__HOST_VERSION__;
@@ -565,33 +532,19 @@ class WbApi:
                     };
                 }"""
             )
-            # fixed, not the session geolocation: WB picks that by IP and it changed between runs
-            dest = SITE_DEST
+            # cities are the account's, not the session geolocation: WB picks that by IP
+            # and it changed between runs
             deviceid = session.get("deviceid") or ""
             spa = session.get("spa") or ""
             logger.info(
-                "WB storefront ready dest=%s spa=%s deviceid=%s",
-                dest,
+                "WB storefront ready, %s dests spa=%s deviceid=%s",
+                len(dests),
                 spa or "missing",
                 "yes" if deviceid else "no",
             )
-            for i in range(0, len(nm_ids), SITE_BATCH_SIZE):
-                batch = nm_ids[i:i + SITE_BATCH_SIZE]
-                url = self._internal_cards_url(batch, dest)
-                payload = await self._chrome_get_json(page, url, deviceid, spa)
-                if payload is None:
-                    continue
-                added = self._parse_site_payload(payload, offers)
-                logger.info(
-                    "loaded WB site prices via Chrome, %s/%s nm_ids, %s sizes",
-                    min(i + SITE_BATCH_SIZE, len(nm_ids)),
-                    len(nm_ids),
-                    added,
-                )
-                await asyncio.sleep(REQUEST_PAUSE_SECONDS)
-            await self._scan_warehouse_stock(
+            scan = await self._scan_cities(
                 nm_ids,
-                offers,
+                dests,
                 lambda urls: self._chrome_fetch_many(page, urls, deviceid, spa),
                 INTERNAL_CARDS_URL,
             )
@@ -600,7 +553,7 @@ class WbApi:
         finally:
             await browser.close()
             await pw.stop()
-        return offers
+        return scan
 
     async def _chrome_fetch_many(self, page, urls: list[str], deviceid: str, spa: str) -> list[FetchResult]:
         # One evaluate so the browser fires the wave together. Separate evaluates
@@ -647,21 +600,6 @@ class WbApi:
                 logger.warning("Chrome fetch returned non-json body=%s", body[:300])
                 fetched.append(FetchResult(None, 0))
         return fetched
-
-    async def _chrome_get_json(self, page, url: str, deviceid: str, spa: str) -> dict | None:
-        for attempt in range(4):
-            fetched = await self._chrome_fetch_many(page, [url], deviceid, spa)
-            result = fetched[0] if fetched else FetchResult(None, 0)
-            if result.status == 429:
-                delay = result.retry_after if result.retry_after else float(2 ** attempt)
-                logger.warning("WB storefront rate limited, retry in %s s", delay)
-                await asyncio.sleep(delay)
-                continue
-            if result.payload is None:
-                return None
-            return result.payload
-        logger.warning("WB storefront stayed rate limited")
-        return None
 
     async def _get_json(self, session: aiohttp.ClientSession, url: str, params: dict | None = None) -> dict:
         # a fully built stock URL already contains raw ';'. aiohttp would encode

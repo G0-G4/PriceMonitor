@@ -49,6 +49,8 @@ class WbPriceChange(BaseModel):
     yesterday_seller_price: float | None
     yesterday_spp: float | None
     yesterday_wallet: float | None
+    # yesterday's price was averaged over other cities, so a change would be misleading
+    dests_changed: bool = False
 
 
 class WbPriceChangeResponse(BaseModel):

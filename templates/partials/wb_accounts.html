@@ -3,7 +3,10 @@
   <td>{{ acc.name }}</td>
   <td class="muted">{{ acc.token_masked or "—" }}</td>
   <td class="actions">
-    <div class="btn-row" style="justify-content: flex-end;">
+    <div class="btn-row" style="justify-content: flex-end; flex-wrap: nowrap;">
+      <button class="btn"
+              hx-get="/wb_accounts/{{ acc.name }}/cities"
+              hx-target="#{{ acc.dom_id }}-cities"><span>Cities (<span id="{{ acc.dom_id }}-count">{{ acc.cities_count }}</span>)</span></button>
       <button class="btn btn-danger"
               hx-delete="/wb_accounts/{{ acc.name }}"
               hx-target="#wb-account-list">
@@ -11,6 +14,9 @@
       </button>
     </div>
   </td>
+</tr>
+<tr class="wb-cities-row">
+  <td colspan="3" id="{{ acc.dom_id }}-cities"></td>
 </tr>
 {% else %}
 <tr>

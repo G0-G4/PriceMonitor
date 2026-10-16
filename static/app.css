@@ -385,3 +385,32 @@ code {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+.wb-cities-row td { padding: 0 10px !important; border-bottom: 0 !important; }
+.wb-cities-row td:not(:empty) { padding: 10px !important; border-bottom: 1px solid var(--line) !important; }
+table.data tbody tr.wb-cities-row:hover td { background: transparent; }
+.wb-cities-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.wb-cities-chip {
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wb-cities-chip:hover { background: var(--err-bg); border-color: #d7a3a3; }
+.wb-cities-list {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  padding: 6px 10px;
+  margin-top: 8px;
+}
+.wb-cities-list summary { cursor: pointer; padding: 3px 0; }
+.wb-cities-district > summary { font-weight: 600; }
+.wb-cities-region { margin-left: 16px; }
+.wb-cities-region > summary { color: var(--muted); }
+.wb-cities-item { display: block; margin-left: 32px; padding: 1px 0; cursor: pointer; }
+.wb-cities-item[hidden], .wb-cities-region[hidden], .wb-cities-district[hidden] { display: none; }

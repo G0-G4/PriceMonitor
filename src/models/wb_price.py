@@ -25,3 +25,5 @@ class WbPrice(Base):
     site_stock = Column(Integer)
     # 1 when site_stock is a lower bound because WB clipped qty
     site_stock_capped = Column(Integer)
+    # hash of the cities site_price was averaged over, empty for rows collected in Moscow only
+    site_dests_key = Column(String)

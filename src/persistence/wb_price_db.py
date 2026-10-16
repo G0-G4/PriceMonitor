@@ -9,8 +9,16 @@ from src.dto.wb_price_dto import WbPriceChange
 from src.models.database import session_maker
 from src.models.wb_price import WbPrice
 from src.service.wb_wallet_discount import wallet_price_from_spp
+from src.wb_cities import MOSCOW, dests_key
+
+# rows collected before cities were selectable were priced in Moscow only
+_LEGACY_DESTS_KEY = dests_key(MOSCOW)
 
 logger = logging.getLogger(__name__)
+
+
+def _dests_key(price: WbPrice) -> str:
+    return price.site_dests_key or _LEGACY_DESTS_KEY
 
 
 def _buyer_price(price: WbPrice):
@@ -45,6 +53,7 @@ async def save_wb_prices(prices: list[WbPrice]):
             "site_price": price.site_price,
             "site_stock": price.site_stock,
             "site_stock_capped": price.site_stock_capped,
+            "site_dests_key": price.site_dests_key,
         } for price in prices]
 
         stmt = insert(WbPrice).values(values)
@@ -63,6 +72,7 @@ async def save_wb_prices(prices: list[WbPrice]):
                 "site_price": stmt.excluded.site_price,
                 "site_stock": stmt.excluded.site_stock,
                 "site_stock_capped": stmt.excluded.site_stock_capped,
+                "site_dests_key": stmt.excluded.site_dests_key,
             }
         )
         await session.execute(stmt)
@@ -120,6 +130,7 @@ async def get_wb_price_change(
             yesterday_seller_price=yesterday.discounted_price if yesterday else None,
             yesterday_spp=yesterday_spp,
             yesterday_wallet=wallet_price_from_spp(yesterday_spp),
+            dests_changed=yesterday is not None and _dests_key(today) != _dests_key(yesterday),
         ))
     return changes
 

@@ -10,5 +10,7 @@ class Task(Base):
     task_id = Column(Integer, primary_key=True)
     name = Column(String)
     status = Column(String)
+    # a FINISHED collection that left some data empty says why here
+    warning = Column(String)
     created_at = Column(DateTime, default=lambda: datetime.now())
     updated_at = Column(DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())

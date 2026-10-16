@@ -30,6 +30,7 @@ include_files = [
     "templates/",
     "static/",
     "migrations/",
+    "data/",
     "config.json",
     ".env"
 ]

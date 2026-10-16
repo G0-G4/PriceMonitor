@@ -41,7 +41,7 @@
   <td class="num">{{ money(price.today_seller_price) }}</td>
   <td class="num">{{ money(price.today_spp) }}</td>
   <td class="num">{{ money(price.today_wallet) }}</td>
-  {% if price.yesterday_spp and price.yesterday_spp > 0 and price.today_spp is not none %}
+  {% if not price.dests_changed and price.yesterday_spp and price.yesterday_spp > 0 and price.today_spp is not none %}
     {% set percentage = price.today_spp / price.yesterday_spp %}
     <td class="num">
       <span class="change {% if percentage > 1 %}change-up{% elif percentage == 1 %}change-flat{% else %}change-down{% endif %}">
