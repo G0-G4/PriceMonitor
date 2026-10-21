@@ -1,4 +1,4 @@
-"""Cities a WB account can collect buyer prices and stock in.
+"""Cities a WB account can collect buyer prices in.
 
 data/wb_cities.json is built by scripts/build_wb_cities.py from the WB pickup-point
 list: one dest per city. SPP is the same in every delivery zone of a city, so any

@@ -1,11 +1,12 @@
 from datetime import datetime, date, timedelta
+import asyncio
 import logging
 import os
 
 import pandas as pd
 from openpyxl.utils import get_column_letter
 
-from src.api.wb_api import SiteScan, WbApi
+from src.api.wb_api import SiteScan, StockResult, WbApi
 from src.dto.wb_price_dto import WbPriceChangeResponse
 from src.models.database import session_maker
 from src.models.wb_price import WbPrice
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _stock_cell(stock: int | None, capped: bool):
-    # >N matches Evirma: the figure is a lower bound where WB clipped qty
+    # >N only on days collected from the storefront, where WB clipped qty
     if stock is None:
         return None
     if capped:
@@ -38,21 +39,42 @@ def _wb_discount(discounted_price: float | None, site_price: float | None) -> in
 
 
 def _site_warnings(scan: SiteScan, dests: list[int]) -> list[str]:
-    """What left buyer prices or stock empty, for the collection task."""
+    """What left buyer prices empty, for the collection task."""
     if scan.storefront_blocked:
-        return ["WB storefront did not pass the antibot check, buyer prices, SPP and stock are empty"]
+        return ["WB storefront did not pass the antibot check, buyer prices and SPP are empty"]
     warnings = []
     if not scan.offers and len(scan.failed_dests) == len(dests):
-        warnings.append("WB storefront answered for no city, buyer prices, SPP and stock are empty")
+        warnings.append("WB storefront answered for no city, buyer prices and SPP are empty")
     elif scan.failed_dests:
         names = ", ".join(city_name(dest) for dest in scan.failed_dests)
-        warnings.append(f"WB did not answer for {names}, prices and stock use the other cities")
+        warnings.append(f"WB did not answer for {names}, prices use the other cities")
     if scan.missing_sizes:
         by_city = ", ".join(
             f"{city_name(dest)} {count}"
             for dest, count in sorted(scan.missing_price.items(), key=lambda item: -item[1])
         )
         warnings.append(f"{scan.missing_sizes} sizes have no price in some cities ({by_city}), their SPP is empty")
+    return warnings
+
+
+_STOCK_SOURCES = {"fbs": "seller warehouses (FBS)", "fbo": "WB warehouses (FBO)"}
+
+
+def _stock_warnings(result: StockResult) -> list[str]:
+    """Why stock is empty: what to fix in the token, or which source failed."""
+    warnings = []
+    for error in result.errors:
+        if error.status in (401, 403) and error.source == "fbs":
+            warnings.append("WB stock: the token needs the Marketplace category")
+        elif error.status in (401, 403):
+            warnings.append(
+                "WB stock on WB warehouses: the token must be Personal (or Service) with the Analytics category"
+            )
+        else:
+            status = error.status or "network error"
+            warnings.append(f"WB stock was not loaded from {_STOCK_SOURCES[error.source]}: {status}")
+    if warnings:
+        warnings[-1] += ", stock is empty"
     return warnings
 
 
@@ -68,7 +90,13 @@ class WbService:
         goods = await self.api.get_prices(token)
         names = await self.api.get_card_names(token)
         dests = await get_wb_dests(account)
-        scan = await self.api.get_site_prices([item.nmID for item in goods], dests)
+        nm_ids = [item.nmID for item in goods]
+        chrt_ids = [size.sizeID for item in goods for size in item.sizes or []]
+        # FBO pauses 20 s between requests, so stock loads while the storefront is scanned
+        stock, scan = await asyncio.gather(
+            self.api.get_stocks(token, nm_ids, chrt_ids),
+            self.api.get_site_prices(nm_ids, dests),
+        )
         site_prices = scan.offers
         logger.info(
             "WB storefront matched %s of %s nm_ids for %s",
@@ -86,6 +114,8 @@ class WbService:
                 if offer is None and len(item.sizes) == 1 and len(item_site_prices) == 1:
                     offer = next(iter(item_site_prices.values()))
                 site_price = offer.price if offer else None
+                # a size on no warehouse is 0, but only when both sources answered
+                site_stock = stock.stocks.get(size.sizeID, 0) if stock.stocks is not None else None
                 prices.append(WbPrice(
                     account=account,
                     nm_id=item.nmID,
@@ -101,17 +131,15 @@ class WbService:
                     club_discount=item.clubDiscount or 0,
                     wb_discount=_wb_discount(size.discountedPrice, site_price),
                     site_price=site_price,
-                    site_stock=offer.stock if offer else None,
-                    site_stock_capped=(
-                        int(offer.stock_capped) if offer and offer.stock is not None else None
-                    ),
+                    site_stock=site_stock,
+                    site_stock_capped=0 if site_stock is not None else None,
                     site_dests_key=offer.dests_key if offer else None,
                 ))
         batch_size = 40
         for i in range(0, len(prices), batch_size):
             await save_wb_prices(prices[i:i + batch_size])
         logger.info("saved %s WB price rows for %s", len(prices), account)
-        warnings = _site_warnings(scan, dests)
+        warnings = _site_warnings(scan, dests) + _stock_warnings(stock)
         for warning in warnings:
             logger.warning("WB %s: %s", account, warning)
         return warnings

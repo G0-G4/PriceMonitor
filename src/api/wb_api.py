@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from urllib.parse import urlencode
 
 import aiohttp
@@ -22,21 +22,55 @@ INTERNAL_CARDS_URL = "https://www.wildberries.ru/__internal/u-card/cards/v4/deta
 SITE_BATCH_SIZE = 100
 REQUEST_PAUSE_SECONDS = 0.7
 # cities in one wave. A 429 pauses the next wave for every in-flight request.
-STOCK_CONCURRENCY = 6
-STOCK_ATTEMPTS = 4
+SITE_CONCURRENCY = 6
+SITE_ATTEMPTS = 4
+# 498 means the antibot wants its check again mid-scan. The cities without an answer
+# are asked again after the storefront page passes the check once more.
+SITE_RECOVERY_ROUNDS = 2
+SITE_RECOVERY_PAUSE_SECONDS = 5
 STOREFRONT_WAIT_SECONDS = 30
+# seller stock: FBS (all seller warehouses) from the Marketplace API, FBO from Analytics
+WAREHOUSES_URL = "https://marketplace-api.wildberries.ru/api/v3/warehouses"
+FBS_STOCKS_URL = "https://marketplace-api.wildberries.ru/api/v3/stocks/{warehouse_id}"
+FBO_STOCKS_URL = "https://seller-analytics-api.wildberries.ru/api/analytics/v1/stocks-report/wb-warehouses"
+STOCK_BATCH_SIZE = 1000
+FBS_PAUSE_SECONDS = 0.2
+# FBO allows 3 requests a minute per seller profile
+FBO_PAUSE_SECONDS = 20
+FBO_PAGE_LIMIT = 250000
+API_ATTEMPTS = 5
+
+
+@dataclass(frozen=True)
+class StockError:
+    source: str  # "fbs" or "fbo"
+    status: int  # HTTP status, 0 for a network error
+    text: str = ""
+
+
+@dataclass
+class StockResult:
+    """chrtId -> FBS + FBO quantity. stocks is None when either source was not loaded."""
+
+    stocks: dict[int, int] | None
+    errors: list[StockError]
+
+
+class StockApiError(Exception):
+    def __init__(self, source: str, status: int, text: str):
+        super().__init__(f"WB {source} stock API {status}: {text[:300]}")
+        self.error = StockError(source, status, text[:300])
+
+
 @dataclass(frozen=True)
 class WbSiteOffer:
-    """Buyer-site price and stock for one size. price is None when the size is listed but not for sale.
+    """Buyer-site price for one size. price is None when the size is listed but not for sale.
 
     price is the average over the cities that answered for this size, dests_key their
-    fingerprint. stock is the reconstructed warehouse quantity for this size. stock_capped
-    means WB clipped qty, so stock is a lower bound and the UI shows it as >N.
+    fingerprint.
     """
 
     price: float | None
-    stock: int | None
-    stock_capped: bool = False
     dests_key: str | None = None
 
 
@@ -55,12 +89,6 @@ class SiteScan:
 
 
 @dataclass(frozen=True)
-class SizeStock:
-    qty: int
-    capped: bool
-
-
-@dataclass(frozen=True)
 class FetchResult:
     payload: dict | None
     status: int
@@ -72,16 +100,6 @@ def _as_int(value) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _stock_rows(size: dict) -> list:
-    stocks = size.get("stocks")
-    if isinstance(stocks, list) and stocks:
-        return stocks
-    # older card payload puts wh/qty on the size itself
-    if size.get("wh") is not None:
-        return [size]
-    return []
 
 
 def _collect_prices(payload: dict) -> dict[tuple[int, int], float | None]:
@@ -115,85 +133,6 @@ def average_site_price(by_dest: dict[int, float | None], answered: list[int]) ->
     return round(sum(priced) / len(priced), 2), []
 
 
-def _collect_stock_observations(payload: dict) -> tuple[list[tuple[int, int, int, int]], set[int], set[tuple[int, int]]]:
-    """Return (nm, warehouse, optionId, qty) rows, product ids seen, and sizes seen."""
-    observations: list[tuple[int, int, int, int]] = []
-    seen_products: set[int] = set()
-    seen_sizes: set[tuple[int, int]] = set()
-    for product in payload.get("products") or []:
-        nm_id = _as_int(product.get("id"))
-        if nm_id is None:
-            continue
-        seen_products.add(nm_id)
-        for size in product.get("sizes") or []:
-            option_id = _as_int(size.get("optionId"))
-            if option_id is None:
-                continue
-            seen_sizes.add((nm_id, option_id))
-            for item in _stock_rows(size):
-                if not isinstance(item, dict):
-                    continue
-                qty = _as_int(item.get("qty"))
-                warehouse = _as_int(item.get("wh"))
-                if qty is None or warehouse is None:
-                    continue
-                observations.append((nm_id, warehouse, option_id, qty))
-    return observations, seen_products, seen_sizes
-
-
-def aggregate_size_stock(
-    observations: list[tuple[int, int, int, int]],
-) -> dict[int, dict[int, SizeStock]]:
-    """Per size: max qty of each warehouse across cities, then sum the warehouses.
-
-    A qty that equals the highest qty in the whole scan is treated as clipped.
-    The size total is then a lower bound, same heuristic Evirma uses.
-    """
-    ceiling = max((qty for _, _, _, qty in observations), default=0)
-    per_warehouse: dict[tuple[int, int, int], int] = {}
-    clipped: set[tuple[int, int]] = set()
-    for nm_id, warehouse, option_id, qty in observations:
-        key = (nm_id, warehouse, option_id)
-        previous = per_warehouse.get(key)
-        if previous is None or qty > previous:
-            per_warehouse[key] = qty
-        if ceiling > 0 and qty == ceiling:
-            clipped.add((nm_id, option_id))
-    result: dict[int, dict[int, SizeStock]] = {}
-    for (nm_id, _, option_id), qty in per_warehouse.items():
-        sizes = result.setdefault(nm_id, {})
-        current = sizes.get(option_id)
-        sizes[option_id] = SizeStock(
-            qty=(current.qty if current else 0) + qty,
-            capped=(nm_id, option_id) in clipped,
-        )
-    return result
-
-
-def merge_size_stock(
-    offers: dict[int, dict[int, WbSiteOffer]],
-    observations: list[tuple[int, int, int, int]],
-    seen_products: set[int],
-    seen_sizes: set[tuple[int, int]],
-) -> None:
-    """Write warehouse stock. Sizes the scan did not return stay empty."""
-    stocks = aggregate_size_stock(observations)
-    for nm_id in seen_products:
-        size_stocks = stocks.get(nm_id, {})
-        current = offers.setdefault(nm_id, {})
-        for option_id, offer in list(current.items()):
-            found = size_stocks.get(option_id)
-            if found is not None:
-                current[option_id] = replace(offer, stock=found.qty, stock_capped=found.capped)
-            elif (nm_id, option_id) in seen_sizes:
-                current[option_id] = replace(offer, stock=0, stock_capped=False)
-            else:
-                current[option_id] = replace(offer, stock=None, stock_capped=False)
-        for option_id, found in size_stocks.items():
-            if option_id not in current:
-                current[option_id] = WbSiteOffer(None, found.qty, found.capped)
-
-
 def _retry_delay(resp: aiohttp.ClientResponse, attempt: int) -> float:
     # WB tells how long to wait in X-Ratelimit-Retry, retrying earlier gets 429 again
     try:
@@ -203,6 +142,118 @@ def _retry_delay(resp: aiohttp.ClientResponse, attempt: int) -> float:
 
 
 class WbApi:
+    async def get_stocks(self, token: str, nm_ids: list[int], chrt_ids: list[int]) -> StockResult:
+        """Stock per size (chrtId == sizeID of the prices API) on seller and WB warehouses."""
+        timeout = aiohttp.ClientTimeout(total=120)
+        headers = {"Authorization": token, "Content-Type": "application/json"}
+        errors: list[StockError] = []
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+            fbs, fbo = await asyncio.gather(
+                self._get_fbs_stocks(session, chrt_ids),
+                self._get_fbo_stocks(session, nm_ids),
+                return_exceptions=True,
+            )
+        for source, part in (("fbs", fbs), ("fbo", fbo)):
+            if isinstance(part, StockApiError):
+                errors.append(part.error)
+            elif isinstance(part, BaseException):
+                logger.error("WB %s stock request failed", source, exc_info=part)
+                errors.append(StockError(source, 0, str(part)[:300]))
+        if errors:
+            for error in errors:
+                logger.error("WB %s stock not loaded: %s %s", error.source, error.status, error.text)
+            return StockResult(None, errors)
+        stocks = dict(fbs)
+        for chrt_id, qty in fbo.items():
+            stocks[chrt_id] = stocks.get(chrt_id, 0) + qty
+        logger.info("WB stock loaded for %s sizes: FBS %s, FBO %s", len(stocks), len(fbs), len(fbo))
+        return StockResult(stocks, [])
+
+    async def _get_fbs_stocks(self, session: aiohttp.ClientSession, chrt_ids: list[int]) -> dict[int, int]:
+        # every seller warehouse, DBS and express included: their stock is real,
+        # and a warehouse being deleted holds 0
+        warehouses = await self._stock_request(session, "fbs", "GET", WAREHOUSES_URL) or []
+        stocks: dict[int, int] = {}
+        for warehouse in warehouses:
+            for i in range(0, len(chrt_ids), STOCK_BATCH_SIZE):
+                payload = await self._stock_request(
+                    session,
+                    "fbs",
+                    "POST",
+                    FBS_STOCKS_URL.format(warehouse_id=warehouse["id"]),
+                    {"chrtIds": chrt_ids[i:i + STOCK_BATCH_SIZE]},
+                )
+                for row in (payload or {}).get("stocks") or []:
+                    chrt_id = _as_int(row.get("chrtId"))
+                    amount = _as_int(row.get("amount"))
+                    if chrt_id is not None and amount is not None:
+                        stocks[chrt_id] = stocks.get(chrt_id, 0) + amount
+                await asyncio.sleep(FBS_PAUSE_SECONDS)
+        logger.info("WB FBS stock: %s warehouses, %s sizes", len(warehouses), len(stocks))
+        return stocks
+
+    async def _get_fbo_stocks(self, session: aiohttp.ClientSession, nm_ids: list[int]) -> dict[int, int]:
+        stocks: dict[int, int] = {}
+        first = True
+        for i in range(0, len(nm_ids), STOCK_BATCH_SIZE):
+            offset = 0
+            while True:
+                if not first:
+                    await asyncio.sleep(FBO_PAUSE_SECONDS)
+                first = False
+                payload = await self._stock_request(session, "fbo", "POST", FBO_STOCKS_URL, {
+                    "nmIds": nm_ids[i:i + STOCK_BATCH_SIZE],
+                    "limit": FBO_PAGE_LIMIT,
+                    "offset": offset,
+                })
+                items = ((payload or {}).get("data") or {}).get("items") or []
+                for item in items:
+                    chrt_id = _as_int(item.get("chrtId"))
+                    quantity = _as_int(item.get("quantity"))
+                    if chrt_id is not None and quantity is not None:
+                        stocks[chrt_id] = stocks.get(chrt_id, 0) + quantity
+                if len(items) < FBO_PAGE_LIMIT:
+                    break
+                offset += len(items)
+        logger.info("WB FBO stock: %s sizes", len(stocks))
+        return stocks
+
+    async def _stock_request(
+        self,
+        session: aiohttp.ClientSession,
+        source: str,
+        method: str,
+        url: str,
+        body: dict | None = None,
+    ):
+        """JSON of a stock call, None for 204. Raises StockApiError once retries run out."""
+        status, text = 0, ""
+        # a quick FBO retry would only spend one of its 3 requests a minute on a 429
+        error_pause = FBO_PAUSE_SECONDS if source == "fbo" else 0
+        for attempt in range(API_ATTEMPTS):
+            try:
+                async with session.request(method, url, json=body) as resp:
+                    status = resp.status
+                    text = await resp.text()
+                    if status == 429:
+                        delay = _retry_delay(resp, attempt)
+                        logger.warning("WB %s stock rate limited, retry in %s s", source, delay)
+                        await asyncio.sleep(delay)
+                        continue
+                    if status == 204:
+                        return None
+                    if status >= 500:
+                        logger.warning("WB %s stock API %s, retrying", source, status)
+                        await asyncio.sleep(max(error_pause, 2 ** attempt))
+                        continue
+                    if status >= 400:
+                        raise StockApiError(source, status, text)
+                    return json.loads(text) if text else None
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                status, text = 0, str(exc) or type(exc).__name__
+                await asyncio.sleep(max(error_pause, 2 ** attempt))
+        raise StockApiError(source, status, text)
+
     async def get_prices(self, token: str, limit: int = 1000) -> list[WbGoods]:
         goods: list[WbGoods] = []
         offset = 0
@@ -271,8 +322,8 @@ class WbApi:
 
     def _stock_cards_url(self, base: str, nm_ids: list[int], dest: int) -> str:
         # hide_dtype=13 is the warehouse-stock request Evirma sends. Its buyer price
-        # matched the hide_vflags/mtype price request for all 1165 sizes on 2026-10-16,
-        # so one request per city gives both price and stock.
+        # matched the hide_vflags/mtype price request for all 1165 sizes on 2026-10-16.
+        # Only the price is read from it: stock comes from the seller API.
         query = urlencode({
             "appType": 1,
             "curr": "rub",
@@ -286,7 +337,7 @@ class WbApi:
         return f"{base}?{query}"
 
     async def get_site_prices(self, nm_ids: list[int], dests: list[int]) -> SiteScan:
-        """nm_id -> {optionId (= sizeID of the official API): buyer price and stock} over dests.
+        """nm_id -> {optionId (= sizeID of the official API): buyer price} over dests.
 
         A size with no buyer price is still returned, so a missing SPP can be told
         apart from a storefront request that failed.
@@ -312,12 +363,12 @@ class WbApi:
         }
 
         async def fetch_many(urls: list[str]) -> list[FetchResult]:
-            return list(await asyncio.gather(*(self._get_stock_once(session, url) for url in urls)))
+            return list(await asyncio.gather(*(self._get_site_once(session, url) for url in urls)))
 
         async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
             return await self._scan_cities(nm_ids, dests, fetch_many, SITE_CARDS_URL)
 
-    async def _get_stock_once(self, session: aiohttp.ClientSession, url: str) -> FetchResult:
+    async def _get_site_once(self, session: aiohttp.ClientSession, url: str) -> FetchResult:
         request_url = URL(url, encoded=True)
         try:
             async with session.get(request_url) as resp:
@@ -330,25 +381,26 @@ class WbApi:
         except json.JSONDecodeError:
             return FetchResult(None, 0)
         except Exception as exc:
-            logger.warning("WB stock request failed: %s", exc)
+            logger.warning("WB storefront request failed: %s", exc)
             return FetchResult(None, 0)
 
-    async def _scan_cities(self, nm_ids, dests: list[int], fetch_many, base: str) -> SiteScan:
-        # One request is one city and one batch. A wave sends STOCK_CONCURRENCY at once.
+    async def _scan_cities(self, nm_ids, dests: list[int], fetch_many, base: str, recover=None) -> SiteScan:
+        # One request is one city and one batch. A wave sends SITE_CONCURRENCY at once.
         # Any 429 holds the following wave; the limited requests go back in the queue.
+        # recover() passes the antibot check again, then the requests left without an
+        # answer are sent once more.
         batches = [nm_ids[i:i + SITE_BATCH_SIZE] for i in range(0, len(nm_ids), SITE_BATCH_SIZE)]
         pending = [
             [dest, self._stock_cards_url(base, batch, dest), 0, batch_no]
             for dest in dests
             for batch_no, batch in enumerate(batches)
         ]
-        observations: list[tuple[int, int, int, int]] = []
         seen_products: set[int] = set()
-        seen_sizes: set[tuple[int, int]] = set()
         # (nm, optionId) -> dest -> price, and which cities answered each batch
         prices: dict[tuple[int, int], dict[int, float | None]] = {}
         answered: list[list[int]] = [[] for _ in batches]
-        failed: set[int] = set()
+        # requests left without an answer after their attempts
+        unanswered: list[list] = []
         first_dest = dests[0]
         first_left = len(batches)
         first_ok = False
@@ -356,85 +408,109 @@ class WbApi:
         backoff = 1.0
         started = time.monotonic()
         logger.info(
-            "loading WB prices and stock for %s nm_ids across %s dests, %s at a time",
+            "loading WB buyer prices for %s nm_ids across %s dests, %s at a time",
             len(nm_ids),
             len(dests),
-            STOCK_CONCURRENCY,
+            SITE_CONCURRENCY,
         )
         wave_no = 0
-        while pending:
-            wave_no += 1
-            wave = pending[:STOCK_CONCURRENCY]
-            pending = pending[STOCK_CONCURRENCY:]
-            try:
-                fetched = await fetch_many([url for _, url, _, _ in wave])
-            except Exception:
-                logger.warning("WB stock wave %s failed", wave_no, exc_info=True)
-                fetched = [FetchResult(None, 0) for _ in wave]
-            if len(fetched) != len(wave):
-                fetched = list(fetched) + [FetchResult(None, 0)] * (len(wave) - len(fetched))
-            retry = []
-            retry_after = 0.0
-            wave_ok = 0
-            wave_limited = 0
-            for (dest, url, attempt, batch_no), result in zip(wave, fetched):
-                if result.status == 429:
-                    limited += 1
-                    wave_limited += 1
-                    if result.retry_after:
-                        retry_after = max(retry_after, result.retry_after)
-                    if attempt + 1 < STOCK_ATTEMPTS:
-                        retry.append([dest, url, attempt + 1, batch_no])
-                    else:
-                        logger.warning("WB stock dest=%s stayed rate limited", dest)
-                        failed.add(dest)
+
+        async def drain(pending: list[list], first_pass: bool) -> bool:
+            """Send the queue. False when the first city answered nothing on the first pass."""
+            nonlocal wave_no, limited, backoff, first_left, first_ok
+            while pending:
+                wave_no += 1
+                wave = pending[:SITE_CONCURRENCY]
+                pending = pending[SITE_CONCURRENCY:]
+                try:
+                    fetched = await fetch_many([url for _, url, _, _ in wave])
+                except Exception:
+                    logger.warning("WB storefront wave %s failed", wave_no, exc_info=True)
+                    fetched = [FetchResult(None, 0) for _ in wave]
+                if len(fetched) != len(wave):
+                    fetched = list(fetched) + [FetchResult(None, 0)] * (len(wave) - len(fetched))
+                retry = []
+                retry_after = 0.0
+                wave_ok = 0
+                wave_limited = 0
+                for (dest, url, attempt, batch_no), result in zip(wave, fetched):
+                    if result.status == 429:
+                        limited += 1
+                        wave_limited += 1
+                        if result.retry_after:
+                            retry_after = max(retry_after, result.retry_after)
+                        if attempt + 1 < SITE_ATTEMPTS:
+                            retry.append([dest, url, attempt + 1, batch_no])
+                        else:
+                            logger.warning("WB storefront dest=%s stayed rate limited", dest)
+                            unanswered.append([dest, url, attempt, batch_no])
+                            if dest == first_dest:
+                                first_left -= 1
+                        continue
+                    if not result.payload:
+                        unanswered.append([dest, url, attempt, batch_no])
                         if dest == first_dest:
                             first_left -= 1
-                    continue
-                if not result.payload:
-                    failed.add(dest)
+                        if result.status not in (0, 200):
+                            logger.warning("WB storefront dest=%s status=%s", dest, result.status)
+                        continue
+                    answered[batch_no].append(dest)
+                    products = set()
+                    for (nm_id, option_id), price in _collect_prices(result.payload).items():
+                        prices.setdefault((nm_id, option_id), {})[dest] = price
+                        products.add(nm_id)
+                    seen_products.update(products)
+                    wave_ok += 1
                     if dest == first_dest:
                         first_left -= 1
-                    if result.status not in (0, 200):
-                        logger.warning("WB stock dest=%s status=%s", dest, result.status)
-                    continue
-                answered[batch_no].append(dest)
-                for key, price in _collect_prices(result.payload).items():
-                    prices.setdefault(key, {})[dest] = price
-                obs, products, sizes = _collect_stock_observations(result.payload)
-                observations.extend(obs)
-                seen_products.update(products)
-                seen_sizes.update(sizes)
-                wave_ok += 1
-                if dest == first_dest:
-                    first_left -= 1
-                    if products:
-                        first_ok = True
-            logger.info(
-                "WB stock wave %s: ok %s, 429 %s, left %s, products %s",
-                wave_no,
-                wave_ok,
-                wave_limited,
-                len(pending) + len(retry),
-                len(seen_products),
-            )
-            if first_left <= 0 and not first_ok:
-                logger.error("WB storefront answered nothing for dest=%s, site prices and stock will be empty", first_dest)
-                return SiteScan({}, {}, 0, list(dests))
-            if retry:
-                delay = retry_after if retry_after > 0 else backoff
-                logger.warning(
-                    "WB stock rate limited on %s request(s), pausing %.1f s",
-                    len(retry),
-                    delay,
+                        if products:
+                            first_ok = True
+                logger.info(
+                    "WB storefront wave %s: ok %s, 429 %s, left %s, products %s",
+                    wave_no,
+                    wave_ok,
+                    wave_limited,
+                    len(pending) + len(retry),
+                    len(seen_products),
                 )
-                await asyncio.sleep(delay)
-                backoff = min(max(backoff * 2, delay), 30.0)
-                pending = retry + pending
-            else:
-                backoff = 1.0
+                if first_pass and first_left <= 0 and not first_ok:
+                    logger.error("WB storefront answered nothing for dest=%s, site prices will be empty", first_dest)
+                    return False
+                if retry:
+                    delay = retry_after if retry_after > 0 else backoff
+                    logger.warning(
+                        "WB storefront rate limited on %s request(s), pausing %.1f s",
+                        len(retry),
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    backoff = min(max(backoff * 2, delay), 30.0)
+                    pending = retry + pending
+                else:
+                    backoff = 1.0
+            return True
+
+        if not await drain(pending, first_pass=True):
+            return SiteScan({}, {}, 0, list(dests))
+        for round_no in range(1, SITE_RECOVERY_ROUNDS + 1):
+            if not unanswered or recover is None:
+                break
+            logger.warning(
+                "WB storefront left %s request(s) of %s dests without an answer, passing the antibot check again (round %s)",
+                len(unanswered),
+                len({dest for dest, _, _, _ in unanswered}),
+                round_no,
+            )
+            await asyncio.sleep(SITE_RECOVERY_PAUSE_SECONDS)
+            if not await recover():
+                logger.warning("WB antibot check did not pass again, cities stay without an answer")
+                break
+            retry_queue = [[dest, url, 0, batch_no] for dest, url, _, batch_no in unanswered]
+            unanswered.clear()
+            await drain(retry_queue, first_pass=False)
+        failed = {dest for dest, _, _, _ in unanswered}
         if not seen_products:
-            logger.error("WB storefront returned no products, site prices and stock will be empty")
+            logger.error("WB storefront returned no products, site prices will be empty")
             return SiteScan({}, {}, 0, sorted(failed))
         batch_of = {nm_id: batch_no for batch_no, batch in enumerate(batches) for nm_id in batch}
         offers: dict[int, dict[int, WbSiteOffer]] = {}
@@ -447,14 +523,11 @@ class WbApi:
                 missing_sizes += 1
             for dest in missing:
                 missing_price[dest] = missing_price.get(dest, 0) + 1
-            offers.setdefault(nm_id, {})[option_id] = WbSiteOffer(price, None, dests_key=dests_key(cities))
-        merge_size_stock(offers, observations, seen_products, seen_sizes)
-        capped = sum(1 for sizes in offers.values() for offer in sizes.values() if offer.stock_capped)
+            offers.setdefault(nm_id, {})[option_id] = WbSiteOffer(price, dests_key=dests_key(cities))
         logger.info(
-            "WB warehouse stock matched %s of %s nm_ids, %s sizes clipped, %.1f s, 429s %s",
+            "WB storefront matched %s of %s nm_ids, %.1f s, 429s %s",
             len(seen_products),
             len(nm_ids),
-            capped,
             time.monotonic() - started,
             limited,
         )
@@ -523,30 +596,34 @@ class WbApi:
             if not await self._wait_for_storefront(page):
                 logger.error("WB antibot challenge did not finish, SPP will be empty")
                 return SiteScan({}, {}, 0, [], storefront_blocked=True)
-            session = await page.evaluate(
-                """() => {
-                    const hostVersion = window.__HOST_VERSION__;
-                    return {
-                        deviceid: localStorage.getItem('wbx__sessionID') || '',
-                        spa: typeof hostVersion === 'string' ? hostVersion : '',
-                    };
-                }"""
-            )
             # cities are the account's, not the session geolocation: WB picks that by IP
             # and it changed between runs
-            deviceid = session.get("deviceid") or ""
-            spa = session.get("spa") or ""
+            session = await self._storefront_session(page)
             logger.info(
                 "WB storefront ready, %s dests spa=%s deviceid=%s",
                 len(dests),
-                spa or "missing",
-                "yes" if deviceid else "no",
+                session["spa"] or "missing",
+                "yes" if session["deviceid"] else "no",
             )
+
+            async def recover() -> bool:
+                try:
+                    await page.goto("https://www.wildberries.ru/", wait_until="domcontentloaded", timeout=60_000)
+                    if not await self._wait_for_storefront(page):
+                        return False
+                    session.update(await self._storefront_session(page))
+                except Exception:
+                    logger.warning("reloading the WB storefront failed", exc_info=True)
+                    return False
+                logger.info("WB storefront passed the antibot check again")
+                return True
+
             scan = await self._scan_cities(
                 nm_ids,
                 dests,
-                lambda urls: self._chrome_fetch_many(page, urls, deviceid, spa),
+                lambda urls: self._chrome_fetch_many(page, urls, session["deviceid"], session["spa"]),
                 INTERNAL_CARDS_URL,
+                recover,
             )
         except Exception:
             logger.exception("Chrome fetch of WB site prices failed")
@@ -554,6 +631,18 @@ class WbApi:
             await browser.close()
             await pw.stop()
         return scan
+
+    async def _storefront_session(self, page) -> dict:
+        session = await page.evaluate(
+            """() => {
+                const hostVersion = window.__HOST_VERSION__;
+                return {
+                    deviceid: localStorage.getItem('wbx__sessionID') || '',
+                    spa: typeof hostVersion === 'string' ? hostVersion : '',
+                };
+            }"""
+        )
+        return {"deviceid": session.get("deviceid") or "", "spa": session.get("spa") or ""}
 
     async def _chrome_fetch_many(self, page, urls: list[str], deviceid: str, spa: str) -> list[FetchResult]:
         # One evaluate so the browser fires the wave together. Separate evaluates
@@ -602,7 +691,7 @@ class WbApi:
         return fetched
 
     async def _get_json(self, session: aiohttp.ClientSession, url: str, params: dict | None = None) -> dict:
-        # a fully built stock URL already contains raw ';'. aiohttp would encode
+        # a fully built storefront URL already contains raw ';'. aiohttp would encode
         # it to %3B and WB would return no products.
         request_url = URL(url, encoded=True) if params is None else url
         for attempt in range(5):

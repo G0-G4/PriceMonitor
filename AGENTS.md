@@ -30,7 +30,7 @@ Requires Python >=3.13. Package manager is `uv` (not pip).
 | `src/models/` | SQLAlchemy models |
 | `src/dto/` | Pydantic response models |
 | `templates/` | Jinja2 + htmx HTML templates |
-| `src/wb_cities.py`, `data/wb_cities.json` | WB cities a cabinet collects buyer price and stock in: one `dest` per city, presets (Evirma's 33, 7 regions, Moscow). Cities per cabinet are stored in `Parameter` as `wb_dests:<account>` |
+| `src/wb_cities.py`, `data/wb_cities.json` | WB cities a cabinet collects the buyer price in (stock does not depend on them): one `dest` per city, presets (7 regions by default, Evirma's 33, Moscow). Cities per cabinet are stored in `Parameter` as `wb_dests:<account>` |
 | `scripts/build_wb_cities.py` | Rebuilds `data/wb_cities.json` by hand from the WB pickup-point list and hflabs/city. Not part of the build |
 
 ## Migrations
@@ -52,3 +52,4 @@ No test suite exists in this project.
 - First-time setup: on `/settings` click "Log in to Ozon" → a Chrome window opens at `seller.ozon.ru`, log in manually, then close the window. The session is persisted to `USER_DATA_DIR` and reused on subsequent starts. If the Ozon session expires, repeat this step.
 - `USER_DATA_DIR` is locked exclusively by Chromium — only one process can hold it at a time. The `/login` endpoint closes the running sender before launching the login window.
 - `src/service/scheduler_service.py` class is `ScedulerService` (misspelled) — matches usage in `src/app.py`.
+- WB stock comes from the seller API, not the storefront: FBS from the Marketplace API (`/api/v3/warehouses`, `/api/v3/stocks/{id}`) plus FBO from Analytics (`stocks-report/wb-warehouses`, 3 requests a minute). The account token must be Personal (or Service) with the Marketplace and Analytics categories, otherwise stock is empty and the task shows a warning.

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from src.models.database import session_maker
 from src.models.parameters import Parameter
 from sqlalchemy import select, delete
-from src.wb_cities import EVIRMA_33, MAX_CITIES
+from src.wb_cities import MAX_CITIES, REGIONS_7
 
 logger = logging.getLogger(__name__)
 
@@ -249,16 +249,16 @@ async def delete_wb_account(account: str):
 
 
 async def get_wb_dests(account: str) -> list[int]:
-    """Cities the account collects buyer prices and stock in. Unset means Evirma's 33."""
+    """Cities the account collects buyer prices in. Unset means the 7 regions."""
     async with session_maker() as session:
         parameter = await find_parameter_by_name(_wb_dests_param_name(account), session)
     if parameter is None or not parameter.value:
-        return list(EVIRMA_33)
+        return list(REGIONS_7)
     try:
         return normalize_wb_dests(json.loads(parameter.value))
     except (ValueError, TypeError):
-        logger.warning("bad WB cities for %s: %r, using Evirma's 33", account, parameter.value)
-        return list(EVIRMA_33)
+        logger.warning("bad WB cities for %s: %r, using the 7 regions", account, parameter.value)
+        return list(REGIONS_7)
 
 
 async def save_wb_dests(account: str, dests: list[int]):
